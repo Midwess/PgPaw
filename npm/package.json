@@ -1,0 +1,33 @@
+{
+  "name": "pgpaw",
+  "version": "0.2.2",
+  "description": "Read-only Postgres cache + realtime server over an embedded pglite logical replica",
+  "license": "MIT",
+  "homepage": "https://github.com/Midwess/PgPaw#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Midwess/PgPaw.git"
+  },
+  "keywords": [
+    "postgres",
+    "postgresql",
+    "cache",
+    "cdc",
+    "sse",
+    "pglite",
+    "replica"
+  ],
+  "bin": {
+    "pgpaw": "bin/pgpaw.js"
+  },
+  "files": [
+    "bin/pgpaw.js",
+    "scripts/postinstall.js"
+  ],
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
