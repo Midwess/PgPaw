@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::pin::Pin;
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Result};
@@ -12,7 +13,20 @@ const USERS: i64 = 5_000;
 const ORDERS: i64 = 25_000;
 const READ_ITERS: usize = 300;
 const RT_ITERS: usize = 50;
-const BASE: &str = "http://127.0.0.1:8088";
+
+static BASE: OnceLock<String> = OnceLock::new();
+
+fn base() -> &'static str {
+    BASE.get().expect("base url not initialized")
+}
+
+fn free_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
+}
 
 type EvStream = Pin<Box<dyn Stream<Item = reqwest::Result<bytes::Bytes>> + Send>>;
 
@@ -37,11 +51,19 @@ async fn main() -> Result<()> {
         s.password.clone(),
     );
     println!("[bench] upstream postgres ready at {host}:{port}");
+    {
+        let (c, _h) = upstream(&host, port, &user, &pass).await?;
+        let wal: String = c.query_one("SHOW wal_level", &[]).await?.get(0);
+        let senders: String = c.query_one("SHOW max_wal_senders", &[]).await?.get(0);
+        println!("[bench] upstream wal_level={wal} max_wal_senders={senders}");
+    }
 
     seed(&host, port, &user, &pass).await?;
     println!("[bench] seeded {USERS} users, {ORDERS} orders");
 
-    spawn_pgpaw(host.clone(), port, user.clone(), pass.clone());
+    let http_port = free_port();
+    BASE.set(format!("http://127.0.0.1:{http_port}")).unwrap();
+    spawn_pgpaw(host.clone(), port, user.clone(), pass.clone(), http_port);
     wait_ready().await?;
     println!("[bench] pgpaw cache server ready (replica backfilled)\n");
 
@@ -108,7 +130,7 @@ async fn bench_reads(
 async fn bench_realtime(http: &reqwest::Client, up: &mut tokio_postgres::Client) -> Result<()> {
     let id = 1i64;
     let resp = http
-        .post(format!("{BASE}/query?live=true"))
+        .post(format!("{}/query?live=true", base()))
         .json(&json!({ "sql": format!("SELECT id, status FROM bench_users WHERE id = {id}") }))
         .send()
         .await?
@@ -156,7 +178,7 @@ async fn next_event(stream: &mut EvStream, buf: &mut String) -> Result<String> {
 
 async fn query(http: &reqwest::Client, sql: &str) -> Result<String> {
     Ok(http
-        .post(format!("{BASE}/query"))
+        .post(format!("{}/query", base()))
         .json(&json!({ "sql": sql }))
         .send()
         .await?
@@ -215,10 +237,10 @@ async fn seed(host: &str, port: u16, user: &str, pass: &str) -> Result<()> {
     Ok(())
 }
 
-fn spawn_pgpaw(host: String, port: u16, user: String, pass: String) {
+fn spawn_pgpaw(host: String, port: u16, user: String, pass: String, http_port: u16) {
     std::thread::spawn(move || {
         let config = pgpaw::ServerConfig {
-            bind_addr: "127.0.0.1:8088".into(),
+            bind_addr: format!("127.0.0.1:{http_port}"),
             data_dir: std::env::temp_dir().join(format!("pgpaw-bench-{}", std::process::id())),
             max_connections: 8,
             cache_size_bytes: 256 * 1024 * 1024,
@@ -243,7 +265,7 @@ async fn wait_ready() -> Result<()> {
     let http = reqwest::Client::new();
     for _ in 0..1200 {
         let ok = http
-            .post(format!("{BASE}/query"))
+            .post(format!("{}/query", base()))
             .json(&json!({ "sql": "SELECT id FROM bench_users WHERE id = 1" }))
             .send()
             .await
