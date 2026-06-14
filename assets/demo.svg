@@ -1,0 +1,200 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 372" role="img" aria-label="PgPaw: read-only query caching and live deltas over a pglite logical replica">
+  <style>
+    .bg        { fill: #0d1117; }
+    .node      { fill: #161b22; stroke: #30363d; stroke-width: 1; }
+    .node-pg   { fill: #161b22; stroke: #1f6feb; stroke-width: 1.5; }
+    .chip      { fill: #11161d; stroke: #30363d; stroke-width: 1; }
+    .ttl       { font: 600 16px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; fill: #f0f6fc; }
+    .sub       { font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; fill: #8b949e; }
+    .name      { font: 600 13px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #c9d1d9; }
+    .name-pg   { font: 600 13px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #79c0ff; }
+    .meta      { font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #6e7681; }
+    .wire      { stroke: #30363d; stroke-width: 1.5; fill: none; }
+    .wire-dash { stroke: #30363d; stroke-width: 1.5; fill: none; stroke-dasharray: 3 4; }
+    .tok-txt   { font: 600 10px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #0d1117; text-anchor: middle; }
+    .chip-txt  { font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #c9d1d9; }
+    .chip-dim  { font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #6e7681; }
+    .mono      { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #c9d1d9; }
+    .key       { fill: #79c0ff; }
+    .num       { fill: #d2a8ff; }
+    .ok        { fill: #3fb950; }
+    .lbl       { font: 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; fill: #8b949e; }
+    .track     { stroke: #30363d; stroke-width: 2; stroke-dasharray: 2 4; }
+  </style>
+
+  <defs>
+    <marker id="ah" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#30363d"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="900" height="372" rx="10"/>
+
+  <text class="ttl" x="24" y="32">PgPaw — immutable query cache + live deltas over a pglite logical replica</text>
+  <text class="sub" x="24" y="52">8-second loop. A request flows left→right; an upstream write replicates back and bumps the version.</text>
+
+  <!-- nodes -->
+  <g transform="translate(30,86)">
+    <rect class="node" x="0" y="0" width="150" height="72" rx="7"/>
+    <text class="name" x="14" y="28">Client / CDN</text>
+    <text class="meta" x="14" y="48">HTTP · SSE</text>
+    <text class="meta" x="14" y="62">caches /q/{hash}/{v}</text>
+  </g>
+
+  <g transform="translate(300,86)">
+    <rect class="node-pg" x="0" y="0" width="210" height="72" rx="7"/>
+    <text class="name-pg" x="14" y="28">PgPaw</text>
+    <text class="meta" x="14" y="48">classifier · VersionIndex</text>
+    <text class="meta" x="14" y="62">moka cache · LiveHub</text>
+  </g>
+
+  <g transform="translate(560,86)">
+    <rect class="node" x="0" y="0" width="160" height="72" rx="7"/>
+    <text class="name" x="14" y="28">pglite replica</text>
+    <text class="meta" x="14" y="48">embedded postmaster</text>
+    <text class="meta" x="14" y="62">CDC feed (LSN)</text>
+  </g>
+
+  <g transform="translate(760,86)">
+    <rect class="node" x="0" y="0" width="110" height="72" rx="7"/>
+    <text class="name" x="14" y="28">Upstream</text>
+    <text class="meta" x="14" y="48">Postgres</text>
+    <text class="meta" x="14" y="62">logical pub</text>
+  </g>
+
+  <!-- wires -->
+  <line class="wire"      x1="180" y1="118" x2="298" y2="118" marker-end="url(#ah)"/>
+  <line class="wire"      x1="510" y1="118" x2="558" y2="118" marker-end="url(#ah)"/>
+  <line class="wire"      x1="720" y1="118" x2="758" y2="118" marker-end="url(#ah)"/>
+  <line class="wire-dash" x1="300" y1="170" x2="182" y2="170" marker-end="url(#ah)"/>
+  <text class="meta" x="200" y="186">303 / SSE</text>
+  <text class="meta" x="600" y="146">logical replication</text>
+
+  <!-- VersionIndex chip (PgPaw) -->
+  <g transform="translate(300,196)">
+    <rect class="chip" x="0" y="0" width="210" height="30" rx="5"/>
+    <text class="chip-dim" x="12" y="20">VersionIndex(orders,id,7) =</text>
+    <text class="num" x="178" y="20" font-weight="600">42
+      <animate attributeName="opacity" values="1;1;0;0" keyTimes="0;0.62;0.64;1" dur="8s" repeatCount="indefinite"/>
+    </text>
+    <text class="num" x="178" y="20" font-weight="600" opacity="0">43
+      <animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.64;0.66;1" dur="8s" repeatCount="indefinite"/>
+    </text>
+  </g>
+
+  <!-- snapshot card (Client side) -->
+  <g transform="translate(30,196)" opacity="0">
+    <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.18;0.20;0.62;0.64;1" dur="8s" repeatCount="indefinite"/>
+    <rect class="chip" x="0" y="0" width="240" height="30" rx="5"/>
+    <rect class="chip" x="0" y="0" width="240" height="30" rx="5" fill="none" stroke="#3fb950" stroke-width="1.5" opacity="0">
+      <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.34;0.36;0.46;0.48" dur="8s" repeatCount="indefinite"/>
+    </rect>
+    <text class="chip-txt" x="12" y="20"><tspan class="num">/q/9a4f/v=42</tspan><tspan class="chip-dim">  immutable 1y</tspan></text>
+  </g>
+  <g transform="translate(30,196)" opacity="0">
+    <animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.66;0.68;1" dur="8s" repeatCount="indefinite"/>
+    <rect class="chip" x="0" y="0" width="240" height="30" rx="5"/>
+    <text class="chip-txt" x="12" y="20"><tspan class="num">/q/9a4f/v=43</tspan><tspan class="chip-dim">  new immutable URL</tspan></text>
+  </g>
+
+  <!-- moving tokens -->
+  <g opacity="0">
+    <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0;0.02;0.14;0.16;1" dur="8s" repeatCount="indefinite"/>
+    <animateMotion path="M180,118 L300,118" keyPoints="0;0;1;1" keyTimes="0;0;0.16;1" calcMode="linear" dur="8s" repeatCount="indefinite"/>
+    <circle r="11" fill="#58a6ff"/>
+    <text class="tok-txt" y="3">POST</text>
+  </g>
+
+  <g opacity="0">
+    <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.18;0.20;0.30;0.32;1" dur="8s" repeatCount="indefinite"/>
+    <animateMotion path="M300,170 L180,170" keyPoints="0;0;1;1" keyTimes="0;0.18;0.32;1" calcMode="linear" dur="8s" repeatCount="indefinite"/>
+    <circle r="11" fill="#d2a8ff"/>
+    <text class="tok-txt" y="3">303</text>
+  </g>
+
+  <g opacity="0">
+    <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.50;0.52;0.62;0.64;1" dur="8s" repeatCount="indefinite"/>
+    <animateMotion path="M760,118 L510,118" keyPoints="0;0;1;1" keyTimes="0;0.50;0.64;1" calcMode="linear" dur="8s" repeatCount="indefinite"/>
+    <circle r="11" fill="#f85149"/>
+    <text class="tok-txt" y="3" fill="#fff">CDC</text>
+  </g>
+
+  <g opacity="0">
+    <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.66;0.68;0.78;0.80;1" dur="8s" repeatCount="indefinite"/>
+    <animateMotion path="M180,118 L300,118" keyPoints="0;0;1;1" keyTimes="0;0.66;0.80;1" calcMode="linear" dur="8s" repeatCount="indefinite"/>
+    <circle r="11" fill="#58a6ff"/>
+    <text class="tok-txt" y="3">POST</text>
+  </g>
+
+  <g opacity="0">
+    <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.82;0.84;0.96;0.98;1" dur="8s" repeatCount="indefinite"/>
+    <animateMotion path="M300,170 L180,170" keyPoints="0;0;1;1" keyTimes="0;0.82;0.98;1" calcMode="linear" dur="8s" repeatCount="indefinite"/>
+    <circle r="11" fill="#3fb950"/>
+    <text class="tok-txt" y="3" fill="#fff">SSE</text>
+  </g>
+
+  <!-- timeline -->
+  <g transform="translate(40,254)">
+    <line class="track" x1="0" y1="14" x2="820" y2="14"/>
+
+    <circle cx="20" cy="14" r="7" fill="#0d1117" stroke="#30363d" stroke-width="1.5">
+      <animate attributeName="fill" values="#0d1117;#0d1117;#58a6ff;#58a6ff;#0d1117;#0d1117" keyTimes="0;0;0.02;0.16;0.18;1" dur="8s" repeatCount="indefinite"/>
+    </circle>
+    <text class="lbl" x="20" y="36" text-anchor="middle">1 · POST /query</text>
+
+    <circle cx="180" cy="14" r="7" fill="#0d1117" stroke="#30363d" stroke-width="1.5">
+      <animate attributeName="fill" values="#0d1117;#0d1117;#d2a8ff;#d2a8ff;#0d1117;#0d1117" keyTimes="0;0.18;0.20;0.32;0.34;1" dur="8s" repeatCount="indefinite"/>
+    </circle>
+    <text class="lbl" x="180" y="36" text-anchor="middle">2 · 303 → v=42</text>
+
+    <circle cx="350" cy="14" r="7" fill="#0d1117" stroke="#30363d" stroke-width="1.5">
+      <animate attributeName="fill" values="#0d1117;#0d1117;#3fb950;#3fb950;#0d1117;#0d1117" keyTimes="0;0.34;0.36;0.48;0.50;1" dur="8s" repeatCount="indefinite"/>
+    </circle>
+    <text class="lbl" x="350" y="36" text-anchor="middle">3 · CDN hit</text>
+
+    <circle cx="510" cy="14" r="7" fill="#0d1117" stroke="#30363d" stroke-width="1.5">
+      <animate attributeName="fill" values="#0d1117;#0d1117;#f85149;#f85149;#0d1117;#0d1117" keyTimes="0;0.50;0.52;0.64;0.66;1" dur="8s" repeatCount="indefinite"/>
+    </circle>
+    <text class="lbl" x="510" y="36" text-anchor="middle">4 · upstream write</text>
+
+    <circle cx="670" cy="14" r="7" fill="#0d1117" stroke="#30363d" stroke-width="1.5">
+      <animate attributeName="fill" values="#0d1117;#0d1117;#58a6ff;#58a6ff;#0d1117;#0d1117" keyTimes="0;0.66;0.68;0.80;0.82;1" dur="8s" repeatCount="indefinite"/>
+    </circle>
+    <text class="lbl" x="670" y="36" text-anchor="middle">5 · re-query → v=43</text>
+
+    <circle cx="820" cy="14" r="7" fill="#0d1117" stroke="#30363d" stroke-width="1.5">
+      <animate attributeName="fill" values="#0d1117;#0d1117;#3fb950;#3fb950;#0d1117;#0d1117" keyTimes="0;0.82;0.84;0.98;1;1" dur="8s" repeatCount="indefinite"/>
+    </circle>
+    <text class="lbl" x="820" y="36" text-anchor="middle">6 · SSE delta</text>
+  </g>
+
+  <!-- detail log -->
+  <g transform="translate(30,308)">
+    <rect class="node" x="0" y="0" width="840" height="44" rx="6"/>
+  </g>
+
+  <g transform="translate(30,308)" opacity="0">
+    <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0;0.02;0.16;0.18;1" dur="8s" repeatCount="indefinite"/>
+    <text class="mono" x="14" y="27"><tspan fill="#6e7681">step 1  </tspan><tspan class="key">POST /query</tspan><tspan>  {"sql":"select id, status from orders where id = 7"}</tspan></text>
+  </g>
+  <g transform="translate(30,308)" opacity="0">
+    <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.18;0.20;0.32;0.34;1" dur="8s" repeatCount="indefinite"/>
+    <text class="mono" x="14" y="27"><tspan fill="#6e7681">step 2  </tspan><tspan class="key">303 See Other</tspan><tspan>  Location: </tspan><tspan class="num">/q/9a4f/v=42</tspan><tspan>  Cache-Control: public, max-age=31536000, immutable</tspan></text>
+  </g>
+  <g transform="translate(30,308)" opacity="0">
+    <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.34;0.36;0.48;0.50;1" dur="8s" repeatCount="indefinite"/>
+    <text class="mono" x="14" y="27"><tspan fill="#6e7681">step 3  </tspan><tspan class="key">GET /q/9a4f/v=42</tspan><tspan>  → </tspan><tspan class="ok">200</tspan><tspan> from CDN edge — never touches PgPaw</tspan></text>
+  </g>
+  <g transform="translate(30,308)" opacity="0">
+    <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.50;0.52;0.64;0.66;1" dur="8s" repeatCount="indefinite"/>
+    <text class="mono" x="14" y="27"><tspan fill="#6e7681">step 4  </tspan><tspan class="key">UPDATE orders SET status='paid' WHERE id=7</tspan><tspan>  → CDC LSN 43 → </tspan><tspan class="num">VersionIndex[(orders,id,7)] = 43</tspan></text>
+  </g>
+  <g transform="translate(30,308)" opacity="0">
+    <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.66;0.68;0.80;0.82;1" dur="8s" repeatCount="indefinite"/>
+    <text class="mono" x="14" y="27"><tspan fill="#6e7681">step 5  </tspan><tspan class="key">POST /query</tspan><tspan> (same SQL) → </tspan><tspan class="num">303 → /q/9a4f/v=43</tspan><tspan>  cache miss, recompute</tspan></text>
+  </g>
+  <g transform="translate(30,308)" opacity="0">
+    <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.82;0.84;0.98;1;1" dur="8s" repeatCount="indefinite"/>
+    <text class="mono" x="14" y="27"><tspan fill="#6e7681">step 6  </tspan><tspan class="ok">data: {"op":"update","key":"7","row":{"id":7,"status":"paid"}}</tspan></text>
+  </g>
+</svg>
