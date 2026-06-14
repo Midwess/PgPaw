@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 
-use cache_server::{init, run, CacheError, ServerConfig, UpstreamConfig};
+use pgpaw::{init, run, CacheError, ServerConfig, UpstreamConfig};
 
 #[derive(Parser)]
 #[command(
