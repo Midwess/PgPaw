@@ -1,6 +1,6 @@
 [package]
 name = "pgpaw"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 rust-version = "1.85"
 license = "MIT"
@@ -18,7 +18,7 @@ name = "pgpaw"
 path = "src/main.rs"
 
 [dependencies]
-pglite-rs = { version = "0.2.2", features = ["replica", "multiple-process"] }
+pglite-rs = { version = "0.2.3", features = ["replica", "multiple-process"] }
 clap = { version = "4", features = ["derive", "env"] }
 actix-web = "4"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
