@@ -259,8 +259,9 @@ or, when the replica has halted:
 { "name": "RejectedError", "message": "table `secrets` is not available in this cache (not replicated)" }
 ```
 
-Status codes: `400` for parse / rejection, `503` if the replica is halted,
-`500` otherwise.
+Status codes: `400` parse / rejection, `401` missing / invalid / expired token
+on an access-controlled query, `403` the token's role is denied the table or
+columns, `503` if the replica is halted, `500` otherwise.
 
 ---
 
@@ -282,6 +283,90 @@ against tables present in the publication. Specifically it rejects:
 A `WHERE col = literal` on a single table that is either the table's primary
 key or a column on a `REPLICA IDENTITY FULL` table becomes a per-row anchor —
 changes to other rows do not invalidate the cache entry.
+
+---
+
+## Authorization (Row-Level Security)
+
+PgPaw enforces your **upstream Postgres Row-Level Security** on cached reads. It
+verifies a JWT and runs access-controlled queries **as the token's role**, so the
+embedded replica's own RLS policies filter the rows — the database is the
+authority, not PgPaw. PgPaw only *verifies* tokens; it never issues them.
+
+### 1. Configure a verification key
+
+Give PgPaw the key your existing auth signs with — symmetric or asymmetric:
+
+```bash
+# HS256 shared secret
+pgpaw serve --jwt-secret "$JWT_SECRET" ...
+# or an RS256/ES256 public key (PEM) — verify-only, no shared secret
+pgpaw serve --jwt-public-key "$(cat jwt_public.pem)" ...
+```
+
+With **no** key, PgPaw runs anonymous-only: it serves public data and rejects
+access-controlled queries with `401`.
+
+### 2. Write RLS on the upstream
+
+Policies live in **your** Postgres and are replicated into the cache
+automatically. Enable + force RLS, target a role, and read claims from
+`request.jwt.claims`:
+
+```sql
+ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE orders FORCE ROW LEVEL SECURITY;
+GRANT SELECT ON orders TO member;
+CREATE POLICY orders_by_org ON orders FOR SELECT TO member
+  USING ( org_id = ((select current_setting('request.jwt.claims', true))::json->>'org_id')::int );
+```
+
+Guidelines:
+
+- **Self-contained policies** — read `current_setting('request.jwt.claims', true)`
+  inline; do not depend on helper functions like `auth.uid()` (functions are not
+  replicated into the cache yet).
+- Wrap `current_setting(...)` in `(select …)` so it is evaluated once per query,
+  not once per row.
+- Index the columns your policies filter on (e.g. `org_id`).
+- For multi-tenant, combine a permissive per-role `SELECT` policy with a
+  `RESTRICTIVE` tenant policy.
+
+### 3. The JWT (claims contract)
+
+Your auth service mints HS256/RS256/ES256 tokens; PgPaw verifies them. Required:
+
+- `exp` — expiry (validated; `alg` is pinned to the configured key).
+- a **`role` claim** (name configurable via `--jwt-role-claim`, default `role`)
+  whose value is a real, non-superuser database role your policies target
+  (`TO <role>`).
+
+Every other claim is free-form: PgPaw forwards the whole verified payload into
+`request.jwt.claims`, and your policies decide which keys matter. A claim key
+must match what the policy reads (`->>'key'`); it need **not** match a column
+name (the policy is the bridge).
+
+### 4. Send the token
+
+```bash
+curl -X POST http://127.0.0.1:8080/query \
+     -H 'authorization: Bearer <jwt>' \
+     -H 'content-type: application/json' \
+     -d '{"sql":"select id, total from orders"}'
+```
+
+### Public vs access-controlled
+
+PgPaw classifies each query against the replicated catalog:
+
+- **Public** — every referenced table has RLS disabled **and** `SELECT` granted
+  to `PUBLIC`. Served from the shared cache (`303 → /q/{hash}/{version}`,
+  `Cache-Control: public, max-age=259200`). No token required.
+- **Access-controlled** — anything else (RLS enabled, or not `PUBLIC`-readable).
+  Requires a valid token; executed under the token's role and returned **inline**
+  with `Cache-Control: private, no-store` (never cached, never CDN-served).
+  Anything that cannot be proven public is treated as access-controlled
+  (fail-closed).
 
 ---
 
@@ -311,6 +396,17 @@ All flags have matching environment variables.
 | `--publication`  | `UPSTREAM_PUBLICATION` | `cache_server_pub` | logical-replication publication    |
 | `--slot`         | `UPSTREAM_SLOT`      | `cache_server_slot` | replication slot name               |
 | `--sslmode`      | `UPSTREAM_SSLMODE`   | `disable`          | `disable` / `prefer` / `require` / `verify-full` |
+
+### Authorization (JWT)
+
+Set at most one verification key. With none, PgPaw is anonymous-only (public data only).
+
+| Flag               | Env              | Default     | Description                                         |
+| ------------------ | ---------------- | ----------- | --------------------------------------------------- |
+| `--jwt-secret`     | `JWT_SECRET`     | *(none)*    | HS256 shared secret                                 |
+| `--jwt-public-key` | `JWT_PUBLIC_KEY` | *(none)*    | RS256/ES256 verification public key (PEM)           |
+| `--jwt-jwks-url`   | `JWT_JWKS_URL`   | *(none)*    | JWKS endpoint — *planned*; use `--jwt-public-key` today |
+| `--jwt-role-claim` | `JWT_ROLE_CLAIM` | `role`      | JWT claim naming the Postgres role to run reads as  |
 
 ## Testing
 
