@@ -51,3 +51,12 @@
 - Depends on the `pglite-rs` path dep (`query_as` + `security_version`). Revert to a published version before release.
 - Behavioral tests that exercise `query_as`/RLS need the replica streaming from a live upstream (same gate as `replica-access-control`). Pure auth/verdict logic is unit-testable without a DB.
 - `live.rs` unchanged (public-only); private live deltas are v2.
+
+## Implementation status (2026-06-15)
+**Done & committed (17/25, branch `jwt-access-control`, 4 commits): phases 1-5.** Library + binary compile; `cargo clippy` clean for new code; auth unit tests 6/6 + lib suite 23/23 green.
+
+**Remaining:**
+- **2.5 JWKS-URL fetch** — deferred. The asymmetric *capability* IS delivered (RS256/ES256 via `--jwt-public-key` PEM, which satisfies "HS256 or a public key"); only the JWKS-endpoint auto-fetch is pending. `--jwt-jwks-url` currently returns a clear `Config` error at startup. Adding it needs an HTTP-client dep (e.g. reqwest) + `kid` key cache.
+- **Phase 6 (6.1-6.7) integration tests** — not authored. They need a booted `Di` (multi-process replica streaming from a live upstream) + an actix test harness, i.e. the same live-upstream gate as `replica-access-control`. Pure auth/verdict logic is already unit-tested; the HTTP behavioral path is unverified.
+
+**Unverified at runtime (no live upstream this session):** `Di::is_private` catalog query (incl. the `relname = ANY($1)` array param binding under pglite), `rows::query_json_as` → `db.query_as`, and the whole public/private + RLS enforcement end-to-end. These rest on the same unproven assumption flagged for `replica-access-control`: that pglite enforces RLS under `SET LOCAL ROLE`.
