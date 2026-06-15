@@ -1,4 +1,4 @@
-<img src="assets/avatar.png" alt="PgPaw" width="120" height="120" align="right" />
+<img src="assets/avatar.png" alt="PgPaw" width="300" height="300" align="right" />
 
 # PgPaw
 
@@ -303,7 +303,7 @@ All flags have matching environment variables.
 ├── LICENSE
 ├── README.md
 ├── assets/
-│   ├── avatar.png        # 120x120 transparent PNG used in this README
+│   ├── avatar.png        # 300x300 transparent PNG (disc on alpha) used in this README
 │   └── avatar.py         # regenerates avatar.png (Pillow)
 └── src/
     ├── main.rs           # CLI (clap): `init` / `serve`

@@ -5,3 +5,4 @@ node_modules/
 npm/bin/pgpaw
 npm/bin/pgpaw.exe
 npm/*.tar.gz
+.idea
