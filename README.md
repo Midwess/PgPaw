@@ -11,6 +11,16 @@
 [![MSRV 1.85](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](Cargo.toml)
 [![Repo](https://img.shields.io/badge/repo-Midwess%2FPgPaw-blue)](https://github.com/Midwess/PgPaw)
 
+**PgPaw is what you get when [ElectricSQL](https://electric-sql.com) and
+[Rocicorp Zero](https://zero.rocicorp.dev) meet on top of real Postgres.** One
+endpoint serves **CDN-cacheable, immutable query snapshots** *and* **live
+realtime updates** — yet, unlike shape- or ZQL-based sync engines, you query
+with **plain Postgres SQL**: no bespoke query language to learn. It drops
+straight into [TanStack](https://tanstack.com) Query / DB, and because every
+query runs inside an embedded Postgres ([pglite](https://crates.io/crates/pglite-rs))
+replica, you get **native Postgres Row-Level Security** — real RLS policies
+enforced by Postgres itself, fully reliable.
+
 PgPaw embeds a [pglite](https://crates.io/crates/pglite-rs) instance as a
 **logical replica** of an upstream Postgres and serves raw read-only SQL over
 HTTP, with three things that are usually painful to bolt on:
