@@ -1728,9 +1728,9 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "pglite-rs"
-version = "0.2.4"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8eb74c4f0e8e65bdf47f3aff554cca952ece3c036704e9a08744bfa20c6a79a7"
+checksum = "5b9ea8689529e8f8ac107c6758681ecb3293f56244782f876f4e2b73adda5d09"
 dependencies = [
  "bytes",
  "fallible-iterator",
@@ -1748,39 +1748,39 @@ dependencies = [
 
 [[package]]
 name = "pglite-rs-lib-aarch64-apple-darwin"
-version = "0.2.4"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c1767219c3184eb71361211065bb3202baa7b30b2666e691e9cbfaf828e8b9b"
+checksum = "c90743f2d2677305cb658ccd3f8b04fff89c6dd35f8f722b3a9dc867c608c8fd"
 
 [[package]]
 name = "pglite-rs-lib-aarch64-unknown-linux-gnu"
-version = "0.2.4"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4585d9b9150f842f2be3642f499d51d5b3f02580c6df325dc21ca784648f3854"
+checksum = "6b7a5cb7951af0c5d30f68959f611ccb87f219213d0568474de2de01f4f772ca"
 
 [[package]]
 name = "pglite-rs-lib-x86_64-apple-darwin"
-version = "0.2.4"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3c06cea352cd032c1ad154dcaa1ef0592020165fd5f26b69dc073099a2d349e"
+checksum = "ee0cbcd8686ff33a566b2a80c9bee99ca10f0d477b3484124afabf2bbc9dead6"
 
 [[package]]
 name = "pglite-rs-lib-x86_64-pc-windows-gnu"
-version = "0.2.4"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d197e63733b3092a6048b9d5a9a82714fff3f831d118c52fb5317840bcd80ca"
+checksum = "d651d8defd9da547e2972c05b4b36ceab696ef396cf1bbe1f9d26e9058b2d47c"
 
 [[package]]
 name = "pglite-rs-lib-x86_64-unknown-linux-gnu"
-version = "0.2.4"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8cae6ecb2d78e3136beeb6edd3fbbbf3241aa210baa87b9ea1321c51ef4db662"
+checksum = "dfcfc4a5dab2236175f030b17e75ae70fd1142a6e17d3e842da03c4f2cf48329"
 
 [[package]]
 name = "pglite-rs-sys"
-version = "0.2.4"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c1102e875973efa257049becf67b142d7e1b852384a9853022293bfe6293a4f"
+checksum = "3c83c34f17b370a05b7703eded095d1114b9619c2816d22c094d9cbbc5200a79"
 dependencies = [
  "libc",
  "pglite-rs-lib-aarch64-apple-darwin",
