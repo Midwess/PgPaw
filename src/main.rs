@@ -121,6 +121,23 @@ struct Options {
         default_value = "disable"
     )]
     sslmode: String,
+    /// JWT HS256 shared secret (one-of with --jwt-public-key / --jwt-jwks-url)
+    #[arg(long = "jwt-secret", env = "JWT_SECRET", global = true)]
+    jwt_secret: Option<String>,
+    /// JWT RS256/ES256 verification public key, PEM (one-of)
+    #[arg(long = "jwt-public-key", env = "JWT_PUBLIC_KEY", global = true)]
+    jwt_public_key: Option<String>,
+    /// JWKS endpoint URL for RS256/ES256 verification (one-of)
+    #[arg(long = "jwt-jwks-url", env = "JWT_JWKS_URL", global = true)]
+    jwt_jwks_url: Option<String>,
+    /// JWT claim naming the Postgres role to SET LOCAL ROLE
+    #[arg(
+        long = "jwt-role-claim",
+        env = "JWT_ROLE_CLAIM",
+        global = true,
+        default_value = "role"
+    )]
+    jwt_role_claim: String,
 }
 
 impl Options {
@@ -158,6 +175,10 @@ async fn run_cli() -> Result<(), CacheError> {
                 data_dir: options.data_dir.clone(),
                 max_connections: options.max_connections,
                 cache_size_bytes: options.cache_size_bytes,
+                jwt_secret: options.jwt_secret.clone(),
+                jwt_public_key: options.jwt_public_key.clone(),
+                jwt_jwks_url: options.jwt_jwks_url.clone(),
+                jwt_role_claim: options.jwt_role_claim.clone(),
                 upstream: options.upstream(),
             };
             run(config).await?;
