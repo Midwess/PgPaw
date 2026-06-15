@@ -22,9 +22,6 @@ HTTP, with three things that are usually painful to bolt on:
 3. **Realtime deltas over SSE** — first event is a snapshot pointer, then
    `insert` / `update` / `delete` events per affected row.
 
-Extracted from [pglite-rs](https://github.com/Midwess/pglite-rs); full commit
-history preserved.
-
 ---
 
 ## Why
@@ -292,41 +289,6 @@ All flags have matching environment variables.
 | `--publication`  | `UPSTREAM_PUBLICATION` | `cache_server_pub` | logical-replication publication    |
 | `--slot`         | `UPSTREAM_SLOT`      | `cache_server_slot` | replication slot name               |
 | `--sslmode`      | `UPSTREAM_SSLMODE`   | `disable`          | `disable` / `prefer` / `require` / `verify-full` |
-
----
-
-## Project layout
-
-```
-.
-├── Cargo.toml
-├── LICENSE
-├── README.md
-├── assets/
-│   ├── avatar.png        # 300x300 transparent PNG (disc on alpha) used in this README
-│   └── avatar.py         # regenerates avatar.png (Pillow)
-└── src/
-    ├── main.rs           # CLI (clap): `init` / `serve`
-    ├── lib.rs            # re-exports + `run(config)` / `init(upstream)`
-    ├── di.rs             # singleton DI: PGlite + Replica + caches + LiveHub
-    ├── setup.rs          # upstream preflight + `init` one-time setup
-    ├── cdc.rs            # CDC bridge: thread that reads pglite::Replica
-    ├── version.rs        # VersionIndex: per-(table,col,value) LSN watermarks
-    ├── cache.rs          # moka-backed QueryCache (byte-budgeted)
-    ├── classify.rs       # ReadClassifier: SQL parse + reject + fingerprint
-    ├── rows.rs           # `to_jsonb(_t) → '[]'::jsonb` wrap helper
-    ├── diff.rs           # Delta + keyed_map for row-level change detection
-    ├── live.rs           # LiveHub: SSE subscriptions + on_commit worker
-    ├── error.rs          # thiserror CacheError + JSON envelope
-    ├── http/
-    │   ├── server.rs     # actix-web App: routes
-    │   ├── query.rs      # /query (snapshot) + /query?live=true + /q/{h}/{v}
-    │   └── health.rs     # /healthz
-    └── tests/
-        └── mod.rs        # classifier + version + diff unit tests
-```
-
----
 
 ## Testing
 
