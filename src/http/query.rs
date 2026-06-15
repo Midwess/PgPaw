@@ -98,6 +98,8 @@ pub(crate) fn error_response(error: CacheError) -> HttpResponse {
     let code = match &error {
         CacheError::Rejected(_) | CacheError::Parse(_) => StatusCode::BAD_REQUEST,
         CacheError::Halted(_) => StatusCode::SERVICE_UNAVAILABLE,
+        CacheError::Unauthorized(_) => StatusCode::UNAUTHORIZED,
+        CacheError::Forbidden(_) => StatusCode::FORBIDDEN,
         _ => StatusCode::INTERNAL_SERVER_ERROR,
     };
     HttpResponse::build(code)

@@ -5,6 +5,7 @@ use std::sync::Arc;
 use pglite::{MultiProcessOptions, PGlite, Replica, ReplicaConfig, SslMode};
 use tokio::sync::OnceCell;
 
+use crate::auth::{JwtConfig, Verifier};
 use crate::cache::QueryCache;
 use crate::cdc::CdcBridge;
 use crate::classify::ReadClassifier;
@@ -30,6 +31,10 @@ pub struct ServerConfig {
     pub data_dir: PathBuf,
     pub max_connections: usize,
     pub cache_size_bytes: u64,
+    pub jwt_secret: Option<String>,
+    pub jwt_public_key: Option<String>,
+    pub jwt_jwks_url: Option<String>,
+    pub jwt_role_claim: String,
     pub upstream: UpstreamConfig,
 }
 
@@ -42,6 +47,7 @@ pub struct Di {
     live: LiveHub,
     tables: HashSet<String>,
     bind_addr: String,
+    verifier: Option<Verifier>,
     #[allow(dead_code)]
     cdc: CdcBridge,
 }
@@ -75,6 +81,12 @@ impl Di {
         let live = LiveHub::start(&cdc, db.clone(), Arc::new(pk));
         let cache = QueryCache::new(config.cache_size_bytes);
         let classifier = ReadClassifier::new(replicated.clone());
+        let verifier = Verifier::from_config(&JwtConfig {
+            secret: config.jwt_secret,
+            public_key: config.jwt_public_key,
+            jwks_url: config.jwt_jwks_url,
+            role_claim: config.jwt_role_claim,
+        })?;
 
         let di = Di {
             db,
@@ -85,6 +97,7 @@ impl Di {
             live,
             tables: replicated,
             bind_addr: config.bind_addr,
+            verifier,
             cdc,
         };
 
@@ -133,6 +146,10 @@ impl Di {
 
     pub fn bind_addr(&self) -> &str {
         &self.bind_addr
+    }
+
+    pub fn verifier(&self) -> Option<&Verifier> {
+        self.verifier.as_ref()
     }
 }
 

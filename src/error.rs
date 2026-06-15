@@ -16,6 +16,10 @@ pub enum CacheError {
     Cache(String),
     #[error("replica halted: {0}")]
     Halted(String),
+    #[error("unauthorized: {0}")]
+    Unauthorized(String),
+    #[error("forbidden: {0}")]
+    Forbidden(String),
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }
@@ -30,6 +34,8 @@ impl CacheError {
             Self::Config(_) => "ConfigError",
             Self::Cache(_) => "CacheError",
             Self::Halted(_) => "HaltedError",
+            Self::Unauthorized(_) => "UnauthorizedError",
+            Self::Forbidden(_) => "ForbiddenError",
             Self::Io(_) => "IoError",
         }
     }
