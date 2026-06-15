@@ -109,29 +109,41 @@ The animation above is a 6-step loop. Watch the bottom panel:
 
 ---
 
-## Quickstart
+## Install
 
-Prereqs: Rust 1.85+, a reachable Postgres 13+ with superuser access (for the
-one-time `init` step).
+PgPaw is a single static binary. Install it with whichever toolchain you have:
 
 ```bash
-# 1. clone and build
-git clone https://github.com/Midwess/PgPaw
-cd PgPaw
-cargo build --release
+# via Cargo (builds from source)
+cargo install pgpaw
 
-# 2. one-time upstream prep: sets wal_level=logical, creates the
+# via npm (downloads the prebuilt binary for your platform)
+npm install -g pgpaw
+```
+
+Prebuilt binaries: Linux x86_64 and macOS Apple Silicon. Other platforms build
+from source via `cargo install pgpaw`.
+
+---
+
+## Quickstart
+
+Prereqs: `pgpaw` installed (see [Install](#install)) and a reachable Postgres
+13+ with superuser access (for the one-time `init` step).
+
+```bash
+# 1. one-time upstream prep: sets wal_level=logical, creates the
 #    publication, and installs a DDL event trigger
-./target/release/pgpaw init \
+pgpaw init \
     --pg-host 127.0.0.1 \
     --pg-user postgres \
     --pg-password $POSTGRES_PASSWORD \
     --pg-database myapp
 
-# 3. restart Postgres if `init` changed wal_level (it prints a notice)
+# 2. restart Postgres if `init` changed wal_level (it prints a notice)
 
-# 4. serve
-./target/release/pgpaw serve \
+# 3. serve
+pgpaw serve \
     --pg-host 127.0.0.1 \
     --pg-user postgres \
     --pg-password $POSTGRES_PASSWORD \
