@@ -12,7 +12,7 @@ npm install -g pgpaw
 pgpaw --help
 ```
 
-Supported platforms: Linux x86_64, macOS x86_64, macOS arm64. On other
+Supported platforms: Linux x86_64, macOS arm64 (Apple Silicon). On other
 platforms install from source with `cargo install pgpaw`.
 
 Full documentation: https://github.com/Midwess/PgPaw

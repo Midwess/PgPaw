@@ -29,8 +29,6 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-          - target: x86_64-apple-darwin
-            os: macos-13
           - target: aarch64-apple-darwin
             os: macos-14
     runs-on: ${{ matrix.os }}
@@ -75,7 +73,7 @@ jobs:
           fi
 
   publish-cargo:
-    needs: [version, build]
+    needs: [version]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -11,7 +11,6 @@ const REPO = "Midwess/PgPaw";
 
 const TARGETS = {
   "linux:x64": "x86_64-unknown-linux-gnu",
-  "darwin:x64": "x86_64-apple-darwin",
   "darwin:arm64": "aarch64-apple-darwin",
 };
 
