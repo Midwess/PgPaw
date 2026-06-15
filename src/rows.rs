@@ -14,3 +14,19 @@ pub async fn query_json(db: &PGlite, sql: &str) -> Result<String, CacheError> {
     };
     Ok(body.unwrap_or_else(|| "[]".to_string()))
 }
+
+pub async fn query_json_as(
+    db: &PGlite,
+    role: &str,
+    claims: &str,
+    sql: &str,
+) -> Result<String, CacheError> {
+    let rows = db
+        .query_as(role, Some(claims), &wrap_json(sql), &[])
+        .await?;
+    let body = match rows.first() {
+        Some(row) => row.get::<Option<String>>(0)?,
+        None => None,
+    };
+    Ok(body.unwrap_or_else(|| "[]".to_string()))
+}

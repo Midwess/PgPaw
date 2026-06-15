@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use pglite::{MultiProcessOptions, PGlite, Replica, ReplicaConfig, SslMode};
 use tokio::sync::OnceCell;
@@ -48,6 +48,7 @@ pub struct Di {
     tables: HashSet<String>,
     bind_addr: String,
     verifier: Option<Verifier>,
+    security_cache: Arc<Mutex<(u64, HashMap<String, bool>)>>,
     #[allow(dead_code)]
     cdc: CdcBridge,
 }
@@ -98,6 +99,7 @@ impl Di {
             tables: replicated,
             bind_addr: config.bind_addr,
             verifier,
+            security_cache: Arc::new(Mutex::new((0, HashMap::new()))),
             cdc,
         };
 
@@ -150,6 +152,57 @@ impl Di {
 
     pub fn verifier(&self) -> Option<&Verifier> {
         self.verifier.as_ref()
+    }
+
+    pub async fn is_private(&self, tables: &[String]) -> Result<bool, CacheError> {
+        let version = self.replica.security_version().await?;
+        {
+            let cache = self.security_cache.lock().unwrap();
+            if cache.0 == version && tables.iter().all(|table| cache.1.contains_key(table)) {
+                return Ok(tables.iter().any(|table| cache.1[table]));
+            }
+        }
+        let verdicts = self.classify_security(tables).await?;
+        let mut cache = self.security_cache.lock().unwrap();
+        if cache.0 != version {
+            cache.0 = version;
+            cache.1.clear();
+        }
+        for (table, private) in &verdicts {
+            cache.1.insert(table.clone(), *private);
+        }
+        Ok(tables
+            .iter()
+            .any(|table| verdicts.get(table).copied().unwrap_or(true)))
+    }
+
+    async fn classify_security(
+        &self,
+        tables: &[String],
+    ) -> Result<HashMap<String, bool>, CacheError> {
+        if tables.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let names: Vec<String> = tables.to_vec();
+        let rows = self
+            .db
+            .query(
+                "select c.relname, \
+                        (c.relrowsecurity or not has_table_privilege('public', c.oid, 'SELECT'))::int \
+                 from pg_class c join pg_namespace n on n.oid = c.relnamespace \
+                 where c.relkind = 'r' \
+                   and n.nspname not in ('pg_catalog', 'information_schema') \
+                   and c.relname = any($1)",
+                &[&names],
+            )
+            .await?;
+        let mut verdicts = HashMap::new();
+        for row in &rows {
+            let name: String = row.get(0)?;
+            let private: i32 = row.get(1)?;
+            verdicts.insert(name, private == 1);
+        }
+        Ok(verdicts)
     }
 }
 

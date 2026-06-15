@@ -1,6 +1,6 @@
 # Tasks: jwt-access-control
 
-## Progress: [8/25]
+## Progress: [17/25]
 
 ## 1. Errors + config
 
@@ -19,21 +19,21 @@
 
 ## 3. Classifier verdict (`di.rs`)
 
-- [ ] 3.1 `Di` + `ServerConfig`: `jwt_secret`, `jwt_role_claim`, `security_cache: Arc<Mutex<(u64, HashMap<String,bool>)>>`; accessors.
-- [ ] 3.2 `Di::is_private(&self, tables) -> Result<bool, CacheError>`: read `replica.security_version()`; lock `(version,map)` as a unit; on version change clear + re-query local catalog (`relrowsecurity` + `has_table_privilege('public', oid, 'SELECT')`) per table; **fail-closed (private) on any error/unknown**; cache per-table.
-- [ ] 3.3 Unit-testable seam: the verdict-merge logic (`any table private ⇒ private`) as a pure helper where feasible.
+- [x] 3.1 `Di` + `ServerConfig`: `jwt_secret`, `jwt_role_claim`, `security_cache: Arc<Mutex<(u64, HashMap<String,bool>)>>`; accessors.
+- [x] 3.2 `Di::is_private(&self, tables) -> Result<bool, CacheError>`: read `replica.security_version()`; lock `(version,map)` as a unit; on version change clear + re-query local catalog (`relrowsecurity` + `has_table_privilege('public', oid, 'SELECT')`) per table; **fail-closed (private) on any error/unknown**; cache per-table.
+- [x] 3.3 Unit-testable seam: the verdict-merge logic (`any table private ⇒ private`) as a pure helper where feasible.
 
 ## 4. Execution (`rows.rs`)
 
-- [ ] 4.1 `query_json_as(db, role, claims, sql)` — `db.query_as(role, Some(claims), &wrap_json(sql), &[])`, same row→json extraction as `query_json`.
+- [x] 4.1 `query_json_as(db, role, claims, sql)` — `db.query_as(role, Some(claims), &wrap_json(sql), &[])`, same row→json extraction as `query_json`.
 
 ## 5. Routing (`http/query.rs`)
 
-- [ ] 5.1 `query(params, body, principal: OptionalPrincipal)`; pass principal to `materialize`.
-- [ ] 5.2 `materialize`: after classify, `di.is_private(&tables).await?` branch.
-- [ ] 5.3 Public branch: existing version→cache→`303` path unchanged; change `cursor` snapshot header to `Cache-Control: public, max-age=259200`.
-- [ ] 5.4 Private branch: require `Some(principal)` else `Unauthorized`; `query_json_as`; return **inline `200`** + `Cache-Control: private, no-store`; never cache, never `303`. Map `pglite::Error::Database{sqlstate}` `42501`/`42704`/`28000` → `Forbidden`.
-- [ ] 5.5 `?live=true` + private → `Forbidden` (live is v2 public-only).
+- [x] 5.1 `query(params, body, principal: OptionalPrincipal)`; pass principal to `materialize`.
+- [x] 5.2 `materialize`: after classify, `di.is_private(&tables).await?` branch.
+- [x] 5.3 Public branch: existing version→cache→`303` path unchanged; change `cursor` snapshot header to `Cache-Control: public, max-age=259200`.
+- [x] 5.4 Private branch: require `Some(principal)` else `Unauthorized`; `query_json_as`; return **inline `200`** + `Cache-Control: private, no-store`; never cache, never `303`. Map `pglite::Error::Database{sqlstate}` `42501`/`42704`/`28000` → `Forbidden`.
+- [x] 5.5 `?live=true` + private → `Forbidden` (live is v2 public-only).
 
 ## 6. Testing
 
