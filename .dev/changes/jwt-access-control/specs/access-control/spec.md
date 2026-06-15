@@ -6,7 +6,7 @@ Adds JWT authentication and per-request authorization to PgPaw's serving layer. 
 
 ### Requirement: JWT Authentication
 
-PgPaw SHALL verify an `Authorization: Bearer <jwt>` header on `POST /query` using either HS256 (a configured shared secret) OR RS256/ES256 (a configured PEM public key or a JWKS endpoint resolved by the token's `kid`), extracting the configured role claim and the full claims set. The token's `alg` SHALL match the configured key type (rejecting algorithm-confusion and `none`). A present-but-invalid, expired, or wrong-algorithm token SHALL be rejected with `401`. A request with no token SHALL be treated as anonymous. `GET /q/{hash}/{version}` and `GET /healthz` SHALL remain reachable without a token.
+PgPaw SHALL verify an `Authorization: Bearer <jwt>` header on `POST /query` using either HS256 (a configured shared secret) OR RS256/ES256 (a configured PEM public key; JWKS-endpoint auto-resolution by the token's `kid` is planned), extracting the configured role claim and the full claims set. The token's `alg` SHALL match the configured key type (rejecting algorithm-confusion and `none`). A present-but-invalid, expired, or wrong-algorithm token SHALL be rejected with `401`. A request with no token SHALL be treated as anonymous. `GET /q/{hash}/{version}` and `GET /healthz` SHALL remain reachable without a token.
 
 #### Scenario: Valid token yields a principal
 
@@ -20,7 +20,7 @@ PgPaw SHALL verify an `Authorization: Bearer <jwt>` header on `POST /query` usin
 
 #### Scenario: Asymmetric token verified via public key / JWKS
 
-- WHEN PgPaw is configured with an RS256/ES256 public key (or a JWKS URL) and a request carries a valid asymmetric token
+- WHEN PgPaw is configured with an RS256/ES256 public key and a request carries a valid asymmetric token
 - THEN it is verified using only the public key (no shared secret) and proceeds with a principal
 
 #### Scenario: Algorithm confusion is rejected

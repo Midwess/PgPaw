@@ -158,3 +158,44 @@ pub(crate) fn error_response(error: CacheError) -> HttpResponse {
         .content_type("application/json")
         .body(error.envelope())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::map_db_denial;
+    use crate::error::CacheError;
+
+    fn db_error(sqlstate: &str) -> CacheError {
+        CacheError::Pglite(pglite::Error::Database {
+            sqlstate: sqlstate.to_string(),
+            message: "denied".to_string(),
+            detail: None,
+            hint: None,
+        })
+    }
+
+    #[test]
+    fn denial_sqlstates_map_to_forbidden() {
+        for code in ["42501", "42704", "28000"] {
+            assert!(
+                matches!(map_db_denial(db_error(code)), CacheError::Forbidden(_)),
+                "sqlstate {code} should map to Forbidden"
+            );
+        }
+    }
+
+    #[test]
+    fn unrelated_database_error_passes_through() {
+        assert!(matches!(
+            map_db_denial(db_error("23505")),
+            CacheError::Pglite(_)
+        ));
+    }
+
+    #[test]
+    fn non_database_error_is_untouched() {
+        assert!(matches!(
+            map_db_denial(CacheError::Cache("x".to_string())),
+            CacheError::Cache(_)
+        ));
+    }
+}

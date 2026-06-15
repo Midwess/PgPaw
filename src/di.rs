@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use pglite::{MultiProcessOptions, PGlite, Replica, ReplicaConfig, SslMode};
 use tokio::sync::OnceCell;
 
-use crate::auth::{JwtConfig, Verifier};
+use crate::auth::Verifier;
 use crate::cache::QueryCache;
 use crate::cdc::CdcBridge;
 use crate::classify::ReadClassifier;
@@ -82,12 +82,12 @@ impl Di {
         let live = LiveHub::start(&cdc, db.clone(), Arc::new(pk));
         let cache = QueryCache::new(config.cache_size_bytes);
         let classifier = ReadClassifier::new(replicated.clone());
-        let verifier = Verifier::from_config(&JwtConfig {
-            secret: config.jwt_secret,
-            public_key: config.jwt_public_key,
-            jwks_url: config.jwt_jwks_url,
-            role_claim: config.jwt_role_claim,
-        })?;
+        let verifier = Verifier::build(
+            config.jwt_secret,
+            config.jwt_public_key,
+            config.jwt_jwks_url,
+            config.jwt_role_claim,
+        )?;
 
         let di = Di {
             db,
@@ -159,7 +159,7 @@ impl Di {
         {
             let cache = self.security_cache.lock().unwrap();
             if cache.0 == version && tables.iter().all(|table| cache.1.contains_key(table)) {
-                return Ok(tables.iter().any(|table| cache.1[table]));
+                return Ok(Self::merge_verdicts(tables, &cache.1));
             }
         }
         let verdicts = self.classify_security(tables).await?;
@@ -171,9 +171,13 @@ impl Di {
         for (table, private) in &verdicts {
             cache.1.insert(table.clone(), *private);
         }
-        Ok(tables
+        Ok(Self::merge_verdicts(tables, &verdicts))
+    }
+
+    fn merge_verdicts(tables: &[String], verdicts: &HashMap<String, bool>) -> bool {
+        tables
             .iter()
-            .any(|table| verdicts.get(table).copied().unwrap_or(true)))
+            .any(|table| verdicts.get(table).copied().unwrap_or(true))
     }
 
     async fn classify_security(
@@ -200,7 +204,10 @@ impl Di {
         for row in &rows {
             let name: String = row.get(0)?;
             let private: i32 = row.get(1)?;
-            verdicts.insert(name, private == 1);
+            verdicts
+                .entry(name)
+                .and_modify(|existing| *existing = true)
+                .or_insert(private == 1);
         }
         Ok(verdicts)
     }
@@ -272,5 +279,38 @@ fn parse_sslmode(value: &str) -> SslMode {
         "require" => SslMode::Require,
         "verify-full" | "verify_full" | "verifyfull" => SslMode::VerifyFull,
         _ => SslMode::Disable,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Di;
+    use std::collections::HashMap;
+
+    fn verdicts(pairs: &[(&str, bool)]) -> HashMap<String, bool> {
+        pairs.iter().map(|(t, p)| (t.to_string(), *p)).collect()
+    }
+
+    #[test]
+    fn any_private_table_makes_query_private() {
+        let v = verdicts(&[("pub", false), ("secret", true)]);
+        assert!(Di::merge_verdicts(&["pub".into(), "secret".into()], &v));
+    }
+
+    #[test]
+    fn all_public_tables_stay_public() {
+        let v = verdicts(&[("a", false), ("b", false)]);
+        assert!(!Di::merge_verdicts(&["a".into(), "b".into()], &v));
+    }
+
+    #[test]
+    fn unknown_table_fails_closed_to_private() {
+        let v = verdicts(&[("a", false)]);
+        assert!(Di::merge_verdicts(&["ghost".into()], &v));
+    }
+
+    #[test]
+    fn empty_tables_are_public() {
+        assert!(!Di::merge_verdicts(&[], &verdicts(&[])));
     }
 }

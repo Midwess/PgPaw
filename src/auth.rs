@@ -8,13 +8,6 @@ use serde_json::Value;
 use crate::di::Di;
 use crate::error::CacheError;
 
-pub struct JwtConfig {
-    pub secret: Option<String>,
-    pub public_key: Option<String>,
-    pub jwks_url: Option<String>,
-    pub role_claim: String,
-}
-
 pub struct Principal {
     pub role: String,
     pub claims_json: String,
@@ -27,30 +20,30 @@ pub struct Verifier {
 }
 
 impl Verifier {
-    pub fn from_config(config: &JwtConfig) -> Result<Option<Verifier>, CacheError> {
-        let provided = [
-            config.secret.is_some(),
-            config.public_key.is_some(),
-            config.jwks_url.is_some(),
-        ]
-        .iter()
-        .filter(|set| **set)
-        .count();
+    pub fn build(
+        secret: Option<String>,
+        public_key: Option<String>,
+        jwks_url: Option<String>,
+        role_claim: String,
+    ) -> Result<Option<Verifier>, CacheError> {
+        let provided = [secret.is_some(), public_key.is_some(), jwks_url.is_some()]
+            .iter()
+            .filter(|set| **set)
+            .count();
         if provided > 1 {
             return Err(CacheError::Config(
                 "set only one of --jwt-secret / --jwt-public-key / --jwt-jwks-url".to_string(),
             ));
         }
-        let role_claim = config.role_claim.clone();
 
-        if let Some(secret) = &config.secret {
+        if let Some(secret) = secret {
             return Ok(Some(Verifier {
                 key: DecodingKey::from_secret(secret.as_bytes()),
                 validation: pinned(Algorithm::HS256),
                 role_claim,
             }));
         }
-        if let Some(pem) = &config.public_key {
+        if let Some(pem) = public_key {
             let (key, alg) = DecodingKey::from_rsa_pem(pem.as_bytes())
                 .map(|key| (key, Algorithm::RS256))
                 .or_else(|_| {
@@ -63,7 +56,7 @@ impl Verifier {
                 role_claim,
             }));
         }
-        if config.jwks_url.is_some() {
+        if jwks_url.is_some() {
             return Err(CacheError::Config(
                 "JWKS URL verification is not yet implemented; use --jwt-secret or --jwt-public-key"
                     .to_string(),
@@ -142,14 +135,9 @@ mod tests {
     }
 
     fn hs_verifier() -> Verifier {
-        Verifier::from_config(&JwtConfig {
-            secret: Some("test-secret".into()),
-            public_key: None,
-            jwks_url: None,
-            role_claim: "role".into(),
-        })
-        .unwrap()
-        .unwrap()
+        Verifier::build(Some("test-secret".into()), None, None, "role".into())
+            .unwrap()
+            .unwrap()
     }
 
     fn sign(secret: &str, claims: Value) -> String {
@@ -178,7 +166,10 @@ mod tests {
             "wrong-secret",
             json!({ "role": "authenticated", "exp": now_secs() + 3600 }),
         );
-        assert!(hs_verifier().verify(&token).is_err());
+        assert!(matches!(
+            hs_verifier().verify(&token),
+            Err(CacheError::Unauthorized(_))
+        ));
     }
 
     #[test]
@@ -187,7 +178,10 @@ mod tests {
             "test-secret",
             json!({ "role": "authenticated", "exp": now_secs() - 3600 }),
         );
-        assert!(hs_verifier().verify(&token).is_err());
+        assert!(matches!(
+            hs_verifier().verify(&token),
+            Err(CacheError::Unauthorized(_))
+        ));
     }
 
     #[test]
@@ -196,28 +190,21 @@ mod tests {
             "test-secret",
             json!({ "sub": "u_1", "exp": now_secs() + 3600 }),
         );
-        assert!(hs_verifier().verify(&token).is_err());
+        assert!(matches!(
+            hs_verifier().verify(&token),
+            Err(CacheError::Unauthorized(message)) if message.contains("missing string 'role'")
+        ));
     }
 
     #[test]
-    fn from_config_rejects_multiple_key_sources() {
-        let config = JwtConfig {
-            secret: Some("s".into()),
-            public_key: Some("p".into()),
-            jwks_url: None,
-            role_claim: "role".into(),
-        };
-        assert!(Verifier::from_config(&config).is_err());
+    fn build_rejects_multiple_key_sources() {
+        assert!(Verifier::build(Some("s".into()), Some("p".into()), None, "role".into()).is_err());
     }
 
     #[test]
-    fn from_config_no_key_is_anonymous_only() {
-        let config = JwtConfig {
-            secret: None,
-            public_key: None,
-            jwks_url: None,
-            role_claim: "role".into(),
-        };
-        assert!(Verifier::from_config(&config).unwrap().is_none());
+    fn build_no_key_is_anonymous_only() {
+        assert!(Verifier::build(None, None, None, "role".into())
+            .unwrap()
+            .is_none());
     }
 }
