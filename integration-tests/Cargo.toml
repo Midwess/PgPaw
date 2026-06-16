@@ -1,0 +1,21 @@
+[package]
+name = "integration-tests"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "harness"
+path = "src/lib.rs"
+
+[dependencies]
+pgpaw = { path = ".." }
+pglite-rs = { path = "../../pglite-rs/crates/pglite", features = ["replica", "multiple-process"] }
+actix-web = "4"
+postgresql_embedded = { version = "0.20", features = ["tokio"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+tokio-postgres = "0.7"
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+jsonwebtoken = "9"
+serde_json = "1"
+tempfile = "3"

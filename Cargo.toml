@@ -8,7 +8,7 @@ repository = "https://github.com/Midwess/PgPaw"
 description = "Read-only Postgres cache + realtime server over an embedded pglite logical replica"
 
 [workspace]
-members = ["bench"]
+members = ["bench", "integration-tests"]
 
 [lib]
 name = "pgpaw"
