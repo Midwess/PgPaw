@@ -45,6 +45,10 @@ const todos = createCollection(
 )
 ```
 
+A full Next.js (App Router) app is in
+[`examples/nextjs-todos`](../../examples/nextjs-todos) — collection, live query,
+optimistic writes, and the txid-returning mutation API.
+
 Your write API returns the transaction id from Postgres:
 
 ```sql
