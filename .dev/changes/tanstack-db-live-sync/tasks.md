@@ -1,6 +1,6 @@
 # Tasks: tanstack-db-live-sync
 
-## Progress: [12/18]
+## Progress: [14/18]
 
 ## 1. PgPaw: transaction id on live deltas
 
@@ -26,13 +26,13 @@
 
 - [x] 5.1 `stream.ts` — SSE line reader over `fetch` + `ReadableStream`
 - [x] 5.2 `index.ts` — `pgpawCollectionOptions`: live connect, first-event branch (url/inline), deltas, reset → truncate+reload
-- [ ] 5.3 Tests (mocked stream): initial load, delta apply, reset
+- [x] 5.3 Tests (mocked stream): initial load, delta apply, reset
 
 ## 6. Library: awaitTxId + writes
 
 - [x] 6.1 `txid.ts` — seen-store + `awaitTxId` (low-32-bit match, timeout)
 - [x] 6.2 Wrap `onInsert`/`onUpdate`/`onDelete` to await their returned txid
-- [ ] 6.3 Tests: write resolves on txid seen; times out otherwise
+- [x] 6.3 Tests: write resolves on txid seen; times out otherwise
 
 ## 7. Documentation
 
