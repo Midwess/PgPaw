@@ -14,3 +14,5 @@ Run a case with `/dev-workflow:do-test-flow .dev/test-flow/<test-id>/`.
 | jwt-verification-modes | JWT verifier accepts only well-formed HS256, rejects expired/bad-sig/alg-none/missing-role/malformed with 401; no-jwt server fails closed | live | auth | 2026-06-16 |
 | realtime-data | Live /query?live=true pushes a follow-up SSE event when an upstream INSERT replicates in; version bumps | live | live | 2026-06-16 |
 | query-redirect | Public /query is a content-addressed redirect cache — 303→/q/{hash}/{version}, cacheable ETag 200, idempotent hash, version bump, 404 on unknown cursor | live | cache | 2026-06-16 |
+| example-nextjs-todos | nextjs-todos example end-to-end via @pgpaw/tanstack-db over live PgPaw — optimistic CRUD round-trip + live SSE delta from a direct upstream UPDATE | live | examples | 2026-06-16 |
+| example-nextjs-project-board | nextjs-project-board example live-syncs a 3-table join; a project rename propagates cross-table to every task badge | live | examples | 2026-06-16 |
