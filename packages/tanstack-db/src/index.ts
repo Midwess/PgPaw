@@ -41,6 +41,8 @@ export function pgpawCollectionOptions<T extends Row>(config: PgpawCollectionCon
     let stopped = false
     let current: AbortController | null = null
     let signalledReady = false
+    const seen = new Set<string>()
+    const keyOf = (row: T) => String(config.getKey(row))
 
     const ready = (): void => {
       if (!signalledReady) {
@@ -50,8 +52,12 @@ export function pgpawCollectionOptions<T extends Row>(config: PgpawCollectionCon
     }
 
     const applyRows = (rows: ReadonlyArray<T>): void => {
+      seen.clear()
       begin()
-      for (const row of rows) write({ type: "insert", value: row })
+      for (const row of rows) {
+        write({ type: "insert", value: row })
+        seen.add(keyOf(row))
+      }
       commit()
     }
 
@@ -85,21 +91,26 @@ export function pgpawCollectionOptions<T extends Row>(config: PgpawCollectionCon
 
         switch (event.op) {
           case "insert":
+          case "update": {
+            const key = keyOf(event.row as T)
             begin()
-            write({ type: "insert", value: event.row })
+            write({ type: seen.has(key) ? "update" : "insert", value: event.row })
             commit()
+            seen.add(key)
             break
-          case "update":
-            begin()
-            write({ type: "update", value: event.row })
-            commit()
+          }
+          case "delete": {
+            const key = String(event.key)
+            if (seen.has(key)) {
+              begin()
+              write({ type: "delete", key })
+              commit()
+              seen.delete(key)
+            }
             break
-          case "delete":
-            begin()
-            write({ type: "delete", key: String(event.key) })
-            commit()
-            break
+          }
           case "reset":
+            seen.clear()
             begin()
             truncate()
             commit()
