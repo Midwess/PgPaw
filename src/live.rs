@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::mpsc;
 
+use crate::auth::Principal;
 use crate::cdc::CdcBridge;
 use crate::diff::{diff, keyed_map, Delta};
 use crate::rows;
@@ -17,9 +18,16 @@ struct Subscription {
     sql: String,
     sender: mpsc::UnboundedSender<String>,
     last: HashMap<String, Value>,
+    principal: Option<Principal>,
 }
 
-type LiveJob = (u64, String, Option<String>, HashMap<String, Value>);
+type LiveJob = (
+    u64,
+    String,
+    Option<String>,
+    HashMap<String, Value>,
+    Option<Principal>,
+);
 
 #[derive(Clone)]
 pub struct LiveHub {
@@ -58,6 +66,7 @@ impl LiveHub {
         hash: String,
         version: u64,
         snapshot_body: &str,
+        principal: Option<Principal>,
     ) -> mpsc::UnboundedReceiver<String> {
         let (sender, receiver) = mpsc::unbounded_channel();
         let pk = if tables.len() == 1 {
@@ -67,14 +76,13 @@ impl LiveHub {
         };
 
         let last = keyed_map(snapshot_body, pk.as_deref());
-        let _ = sender.send(format!(
-            "data: {}\n\n",
-            json!({
-                "type": "snapshot",
-                "url": format!("/q/{hash}/{version}"),
-                "version": version,
-            })
-        ));
+        let first = if principal.is_some() {
+            let rows: Value = serde_json::from_str(snapshot_body).unwrap_or_else(|_| json!([]));
+            json!({"type": "snapshot", "rows": rows, "version": version})
+        } else {
+            json!({"type": "snapshot", "url": format!("/q/{hash}/{version}"), "version": version})
+        };
+        let _ = sender.send(format!("data: {first}\n\n"));
 
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         self.subs.lock().unwrap().insert(
@@ -85,6 +93,7 @@ impl LiveHub {
                 sql,
                 sender,
                 last,
+                principal,
             },
         );
         receiver
@@ -114,14 +123,24 @@ impl LiveHub {
                         .iter()
                         .any(|table| changed.contains(&table.to_ascii_lowercase()))
                 })
-                .map(|(id, sub)| (*id, sub.sql.clone(), sub.pk.clone(), sub.last.clone()))
+                .map(|(id, sub)| {
+                    (
+                        *id,
+                        sub.sql.clone(),
+                        sub.pk.clone(),
+                        sub.last.clone(),
+                        sub.principal.clone(),
+                    )
+                })
                 .collect()
         };
 
-        for (id, sql, pk, last) in jobs {
-            let fresh = rows::query_json(&self.db, &sql)
-                .await
-                .unwrap_or_else(|_| "[]".to_string());
+        for (id, sql, pk, last, principal) in jobs {
+            let fresh = match &principal {
+                Some(p) => rows::query_json_as(&self.db, &p.role, &p.claims_json, &sql).await,
+                None => rows::query_json(&self.db, &sql).await,
+            }
+            .unwrap_or_else(|_| "[]".to_string());
             let next = keyed_map(&fresh, pk.as_deref());
             let deltas = diff(&last, &next);
 

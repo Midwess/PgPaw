@@ -8,6 +8,7 @@ use serde_json::Value;
 use crate::di::Di;
 use crate::error::CacheError;
 
+#[derive(Clone)]
 pub struct Principal {
     pub role: String,
     pub claims_json: String,

@@ -1,6 +1,6 @@
 # Tasks: tanstack-db-live-sync
 
-## Progress: [4/18]
+## Progress: [7/18]
 
 ## 1. PgPaw: transaction id on live deltas
 
@@ -14,9 +14,9 @@
 
 ## 3. PgPaw: authenticated RLS live
 
-- [ ] 3.1 `Subscription.principal`; `subscribe(..., principal)`; `on_commit` recompute via `query_json_as` when private
-- [ ] 3.2 `http/query.rs`: remove the live `Forbidden`; `live_query(di, query, principal)`; private inline-rows first event
-- [ ] 3.3 `cargo build` green (signature change + caller land together)
+- [x] 3.1 `Subscription.principal`; `subscribe(..., principal)`; `on_commit` recompute via `query_json_as` when private
+- [x] 3.2 `http/query.rs`: remove the live `Forbidden`; `live_query(di, query, principal)`; private inline-rows first event
+- [x] 3.3 `cargo build` green (signature change + caller land together)
 
 ## 4. Library scaffold
 

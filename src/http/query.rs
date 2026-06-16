@@ -60,15 +60,13 @@ pub async fn query(
             ));
         };
         if live {
-            return error_response(CacheError::Forbidden(
-                "live streaming is not available for access-controlled queries".to_string(),
-            ));
+            return live_query(di, query, Some(principal)).await;
         }
         return private_response(di, &query, &principal).await;
     }
 
     if live {
-        return live_query(di, query).await;
+        return live_query(di, query, None).await;
     }
     match materialize(di, &query).await {
         Ok((hash, version, _)) => HttpResponse::SeeOther()
@@ -98,14 +96,37 @@ fn map_db_denial(error: CacheError) -> CacheError {
     error
 }
 
-async fn live_query(di: &'static Di, query: CacheableQuery) -> HttpResponse {
-    let (hash, version, snapshot) = match materialize(di, &query).await {
-        Ok(parts) => parts,
-        Err(error) => return error_response(error),
+async fn live_query(
+    di: &'static Di,
+    query: CacheableQuery,
+    principal: Option<Principal>,
+) -> HttpResponse {
+    let receiver = match principal {
+        Some(p) => {
+            let body =
+                match rows::query_json_as(di.db(), &p.role, &p.claims_json, &query.sql).await {
+                    Ok(body) => body,
+                    Err(error) => return error_response(map_db_denial(error)),
+                };
+            let version = di.versions().version_of(&query.tables, &query.eq_filters).0;
+            di.live()
+                .subscribe(query.sql, query.tables, String::new(), version, &body, Some(p))
+        }
+        None => {
+            let (hash, version, snapshot) = match materialize(di, &query).await {
+                Ok(parts) => parts,
+                Err(error) => return error_response(error),
+            };
+            di.live().subscribe(
+                query.sql,
+                query.tables,
+                hash,
+                version,
+                &snapshot.body,
+                None,
+            )
+        }
     };
-    let receiver = di
-        .live()
-        .subscribe(query.sql, query.tables, hash, version, &snapshot.body);
     let stream = UnboundedReceiverStream::new(receiver)
         .map(|event| Ok::<_, actix_web::Error>(web::Bytes::from(event)));
     HttpResponse::Ok()
