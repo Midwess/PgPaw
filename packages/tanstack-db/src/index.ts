@@ -100,7 +100,9 @@ export function pgpawCollectionOptions<T extends Row>(config: PgpawCollectionCon
             commit()
             break
           case "reset":
+            begin()
             truncate()
+            commit()
             return
           default:
             break
