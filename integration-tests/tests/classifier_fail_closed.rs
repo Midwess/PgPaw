@@ -39,8 +39,6 @@ async fn classifier_fails_closed_on_every_edge() {
     )
     .await;
 
-    // Online schema-change capture so the mid-flight REVOKE propagates promptly
-    // instead of waiting for the slow periodic security re-poll.
     up.install_ddl_trigger().await;
 
     let server = Server::start(&up, Some(JWT_SECRET)).await;
@@ -50,11 +48,9 @@ async fn classifier_fails_closed_on_every_edge() {
 
     let token_a = mint(JWT_SECRET, json!({"role":"member","org_id":1,"exp":FAR_EXP}));
 
-    // Genuine public control: unique relname, RLS off, granted PUBLIC -> 303.
     let control = server.query("select * from open_t order by id", None).await;
     assert_eq!(control.status().as_u16(), 303, "open_t is genuinely public");
 
-    // RLS on, no policy = deny-all, classified private.
     let nopolicy_anon = server
         .query("select * from rls_nopolicy order by id", None)
         .await;
@@ -67,7 +63,6 @@ async fn classifier_fails_closed_on_every_edge() {
     let nopolicy_rows = harness::as_array(nopolicy_auth).await;
     assert_eq!(nopolicy_rows.len(), 0, "no policy = deny-all, not a leak");
 
-    // Mixed query: a private table taints the whole statement.
     let mixed = server
         .query(
             "select o.id from open_t o join secret_t s on s.id = o.id",
@@ -76,8 +71,6 @@ async fn classifier_fails_closed_on_every_edge() {
         .await;
     assert_eq!(mixed.status().as_u16(), 401, "private table taints the join");
 
-    // Duplicate relname across schemas: any private copy makes the relname private (fail closed),
-    // so even the public public.dup_t is no longer served anonymously.
     let dup = server.query("select * from dup_t", None).await;
     assert_eq!(
         dup.status().as_u16(),
@@ -85,11 +78,9 @@ async fn classifier_fails_closed_on_every_edge() {
         "colliding relname resolves private"
     );
 
-    // Unknown / unreplicated table -> 4xx, never 500/hang.
     let unknown = server.query("select * from does_not_exist", None).await;
     assert_eq!(unknown.status().as_u16(), 400, "unknown table is rejected");
 
-    // Revoke PUBLIC mid-flight: pub_t2 starts public, then flips private after propagation.
     let before = server.query("select * from pub_t2 order by id", None).await;
     assert_eq!(before.status().as_u16(), 303, "pub_t2 starts public");
     up.run_sql("REVOKE SELECT ON pub_t2 FROM PUBLIC").await;

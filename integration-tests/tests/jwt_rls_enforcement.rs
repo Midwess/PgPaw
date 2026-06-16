@@ -42,7 +42,6 @@ async fn jwt_scoped_query_enforces_upstream_rls() {
         .wait_rows("select * from documents order by id", Some(&token_a), 2)
         .await;
 
-    // Public query, no token -> 303 redirect to a cacheable snapshot
     let public = server
         .query("select id, name from orgs order by id", None)
         .await;
@@ -67,7 +66,6 @@ async fn jwt_scoped_query_enforces_upstream_rls() {
     let orgs = harness::as_array(snapshot).await;
     assert_eq!(orgs.len(), 2, "both orgs visible publicly");
 
-    // Tenant A: SELECT * sees only org 1's documents, inline + private
     let a_resp = server
         .query("select * from documents order by id", Some(&token_a))
         .await;
@@ -76,7 +74,6 @@ async fn jwt_scoped_query_enforces_upstream_rls() {
     let a_rows = harness::as_array(a_resp).await;
     assert_eq!(ids(&a_rows), vec![101, 102], "A sees only its rows");
 
-    // Tenant A: JOIN with public orgs is still tenant-scoped (private table taints the join)
     let a_join = server
         .rows(
             "select d.id, d.title, o.name from documents d join orgs o on o.id = d.org_id order by d.id",
@@ -89,25 +86,21 @@ async fn jwt_scoped_query_enforces_upstream_rls() {
         "A only joins to its own org"
     );
 
-    // Tenant B: disjoint result set
     let b_rows = server
         .rows("select * from documents order by id", Some(&token_b))
         .await;
     assert_eq!(ids(&b_rows), vec![201, 202, 203], "B sees only its rows");
 
-    // No token on a private table -> 401 (not a zero-row 200)
     let no_token = server
         .query("select * from documents order by id", None)
         .await;
     assert_eq!(no_token.status().as_u16(), 401, "private query needs a token");
 
-    // Expired token -> 401
     let expired = server
         .query("select * from documents order by id", Some(&token_expired))
         .await;
     assert_eq!(expired.status().as_u16(), 401, "expired token rejected");
 
-    // Private live stream -> 403 even with a valid token
     let private_live = server
         .live("select * from documents order by id", Some(&token_a))
         .await;
@@ -117,7 +110,6 @@ async fn jwt_scoped_query_enforces_upstream_rls() {
         "live streaming not allowed for access-controlled queries"
     );
 
-    // Public live stream -> 200 text/event-stream
     let public_live = server.live("select id, name from orgs order by id", None).await;
     assert_eq!(public_live.status().as_u16(), 200);
     let ctype = public_live

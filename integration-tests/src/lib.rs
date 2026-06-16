@@ -247,13 +247,28 @@ impl Server {
 
     pub async fn wait_rows(&self, sql: &str, token: Option<&str>, want: usize) {
         let deadline = Instant::now() + Duration::from_secs(30);
+        let mut last = String::new();
         loop {
-            let got = self.rows(sql, token).await.len();
-            if got == want {
-                return;
+            let resp = self.query(sql, token).await;
+            let status = resp.status().as_u16();
+            let got = match status {
+                200 => Some(as_array(resp).await.len()),
+                303 => match resp.headers().get("location").and_then(|v| v.to_str().ok()) {
+                    Some(location) => {
+                        let location = location.to_string();
+                        Some(as_array(self.cursor(&location).await).await.len())
+                    }
+                    None => None,
+                },
+                _ => None,
+            };
+            match got {
+                Some(n) if n == want => return,
+                Some(n) => last = format!("{n} rows"),
+                None => last = format!("status {status}"),
             }
             if Instant::now() > deadline {
-                panic!("replication did not yield {want} rows for `{sql}` (last saw {got})");
+                panic!("replication did not yield {want} rows for `{sql}` (last saw {last})");
             }
             tokio::time::sleep(Duration::from_millis(250)).await;
         }

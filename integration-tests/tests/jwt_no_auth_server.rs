@@ -20,7 +20,6 @@ async fn server_without_jwt_config_fails_closed_but_serves_public() {
     )
     .await;
 
-    // No jwt secret configured.
     let server = Server::start(&up, None).await;
     server
         .wait_rows("select * from pub_t order by id", None, 2)
@@ -28,7 +27,6 @@ async fn server_without_jwt_config_fails_closed_but_serves_public() {
 
     let token = mint(JWT_SECRET, json!({"role":"member","org_id":1,"exp":FAR_EXP}));
 
-    // A token presented to a server that cannot verify it must be refused, not trusted.
     let presented = server
         .query("select * from secret_t order by id", Some(&token))
         .await;
@@ -38,7 +36,6 @@ async fn server_without_jwt_config_fails_closed_but_serves_public() {
         "token to unconfigured verifier is rejected"
     );
 
-    // Public queries still work with no auth configured.
     let public = server.query("select * from pub_t order by id", None).await;
     assert_eq!(public.status().as_u16(), 303, "public path needs no auth");
 }

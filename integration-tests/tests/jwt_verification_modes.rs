@@ -3,7 +3,6 @@ use serde_json::json;
 
 const FAR_EXP: i64 = 4_070_908_800;
 const PAST_EXP: i64 = 100;
-// alg:none forgery — header {"alg":"none"} with an empty signature.
 const ALG_NONE: &str = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJyb2xlIjoibWVtYmVyIiwib3JnX2lkIjoxLCJleHAiOjQwNzA5MDg4MDB9.";
 
 async fn seed(up: &Upstream) {
@@ -56,13 +55,11 @@ async fn verifier_accepts_only_well_formed_tokens() {
         "missing role claim rejected"
     );
 
-    // Raw token without the "Bearer " scheme -> malformed.
     assert_eq!(
         server.query_auth(q, &valid).await.status().as_u16(),
         401,
         "missing Bearer prefix is malformed"
     );
-    // Wrong scheme entirely.
     assert_eq!(
         server
             .query_auth(q, "Basic dXNlcjpwYXNz")
@@ -73,7 +70,6 @@ async fn verifier_accepts_only_well_formed_tokens() {
         "non-Bearer scheme is malformed"
     );
 
-    // Public table is unaffected by auth: no token still redirects.
     assert_eq!(
         server
             .query("select * from pub_t order by id", None)

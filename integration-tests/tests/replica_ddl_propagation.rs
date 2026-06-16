@@ -13,7 +13,6 @@ fn ids(rows: &[serde_json::Value]) -> Vec<i64> {
 async fn security_ddl_after_launch_propagates_and_reclassifies() {
     let up = Upstream::start().await;
 
-    // docs starts PUBLIC: RLS off, granted PUBLIC.
     up.run_sql(
         "CREATE TABLE docs (id int PRIMARY KEY, org_id int, title text);
          INSERT INTO docs VALUES
@@ -22,7 +21,6 @@ async fn security_ddl_after_launch_propagates_and_reclassifies() {
          GRANT SELECT ON docs TO PUBLIC;",
     )
     .await;
-    // The DDL event trigger makes later schema changes replicate online.
     up.install_ddl_trigger().await;
 
     let server = Server::start(&up, Some(JWT_SECRET)).await;
@@ -30,11 +28,9 @@ async fn security_ddl_after_launch_propagates_and_reclassifies() {
         .wait_rows("select * from docs order by id", None, 5)
         .await;
 
-    // Baseline: docs is public, served token-free as a redirect.
     let baseline = server.query("select * from docs order by id", None).await;
     assert_eq!(baseline.status().as_u16(), 303, "docs starts public");
 
-    // Apply security DDL AFTER the server is already running.
     up.run_sql(
         "CREATE ROLE member LOGIN;
          GRANT SELECT ON docs TO member;
@@ -45,7 +41,6 @@ async fn security_ddl_after_launch_propagates_and_reclassifies() {
     )
     .await;
 
-    // Propagation: the no-token query flips public(303) -> private(401) with no restart.
     server
         .wait_status("select * from docs order by id", None, 401, 90)
         .await;
@@ -69,7 +64,6 @@ async fn security_ddl_after_launch_propagates_and_reclassifies() {
         .await;
     assert_eq!(ids(&b_rows), vec![201, 202, 203], "B sees only org 2");
 
-    // Bidirectional: disabling RLS upstream re-widens the query back to public.
     up.run_sql("ALTER TABLE docs DISABLE ROW LEVEL SECURITY")
         .await;
     server

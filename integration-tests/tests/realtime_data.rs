@@ -41,7 +41,6 @@ async fn live_stream_pushes_delta_on_upstream_insert() {
         .wait_rows("select id, label from events order by id", None, 2)
         .await;
 
-    // Pre-insert version baseline.
     let baseline = server.query("select * from events order by id", None).await;
     assert_eq!(baseline.status().as_u16(), 303);
     let base_version = version_of(
@@ -53,7 +52,6 @@ async fn live_stream_pushes_delta_on_upstream_insert() {
             .unwrap(),
     );
 
-    // Open the live stream.
     let mut stream = server
         .live("select id, label from events order by id", None)
         .await;
@@ -68,7 +66,11 @@ async fn live_stream_pushes_delta_on_upstream_insert() {
         "live opens an SSE stream, got {ctype}"
     );
 
-    // Mutate upstream while the stream is open, then observe the delta.
+    assert!(
+        stream_contains(&mut stream, "/q/", 10).await,
+        "live stream did not emit an opening snapshot event within 10s"
+    );
+
     up.run_sql("INSERT INTO events VALUES (3,'live-three')")
         .await;
     assert!(
@@ -76,7 +78,6 @@ async fn live_stream_pushes_delta_on_upstream_insert() {
         "live stream did not surface the inserted row within 15s"
     );
 
-    // Non-live read reflects the new row under a bumped version.
     server
         .wait_rows("select * from events order by id", None, 3)
         .await;
