@@ -46,3 +46,9 @@ Single-process actix-web 4 server; process-global `Di` singleton (`tokio::sync::
 - Private path = `rows::query_json_as` → `db.query_as` returned **inline** (never `303`, never cached); public path unchanged except snapshot `max-age` → 72h.
 - `pglite-rs` is a **path dep** for `query_as`/`security_version` (revert before release); `jsonwebtoken = "9"` new.
 
+### tanstack-db-live-sync hooks (2026-06-16)
+- Live wire gains `txid` (CDC `CommittedTransaction.xid`, u32) on deltas + `up-to-date`; `up-to-date{txid}` emitted even on empty diff so client `awaitTxId` can't hang.
+- RLS live: `LiveHub::Subscription` holds `Option<Principal>`; `on_commit` recompute = `query_json_as(role, claims)` when private; `http/query.rs` drops the live `Forbidden` and passes the `Principal`; private first event = inline `rows` (no `/q` pointer).
+- `reset` event on `RecvError::Lagged` → client truncates + reloads.
+- New npm package `packages/tanstack-db` (`@pgpaw/tanstack-db`): native TanStack DB collection over the SSE wire. Backend stays TanStack-agnostic.
+
