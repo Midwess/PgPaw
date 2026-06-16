@@ -6,6 +6,7 @@ use serde_json::json;
 
 use crate::classify::ReadClassifier;
 use crate::diff::{diff, keyed_map, Delta};
+use crate::live::{encode, up_to_date};
 use crate::version::VersionIndex;
 
 fn classifier() -> ReadClassifier {
@@ -229,4 +230,39 @@ fn keyed_map_uses_pk_column() {
 fn keyed_map_falls_back_to_row_hash() {
     let map = keyed_map(r#"[{"a":1},{"a":2}]"#, None);
     assert_eq!(map.len(), 2);
+}
+
+#[test]
+fn encode_carries_txid_on_every_op() {
+    let insert = encode(
+        &Delta::Insert {
+            key: "7".to_string(),
+            row: json!({"id": 7}),
+        },
+        42,
+    );
+    assert!(insert.contains("\"op\":\"insert\""));
+    assert!(insert.contains("\"txid\":42"));
+
+    let update = encode(
+        &Delta::Update {
+            key: "7".to_string(),
+            row: json!({"id": 7}),
+        },
+        43,
+    );
+    assert!(update.contains("\"op\":\"update\""));
+    assert!(update.contains("\"txid\":43"));
+
+    let delete = encode(&Delta::Delete { key: "7".to_string() }, 44);
+    assert!(delete.contains("\"op\":\"delete\""));
+    assert!(delete.contains("\"txid\":44"));
+}
+
+#[test]
+fn up_to_date_carries_txid() {
+    let frame = up_to_date(99);
+    assert!(frame.contains("\"op\":\"up-to-date\""));
+    assert!(frame.contains("\"txid\":99"));
+    assert!(frame.ends_with("\n\n"));
 }

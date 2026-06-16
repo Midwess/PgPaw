@@ -91,6 +91,7 @@ impl LiveHub {
     }
 
     async fn on_commit(&self, txn: &CommittedTransaction) {
+        let txid = txn.xid;
         let changed: HashSet<String> = txn
             .changes
             .iter()
@@ -120,13 +121,13 @@ impl LiveHub {
             if let Some(sub) = subs.get_mut(&id) {
                 let mut alive = true;
                 for delta in &deltas {
-                    if sub.sender.send(encode(delta)).is_err() {
+                    if sub.sender.send(encode(delta, txid)).is_err() {
                         alive = false;
                         break;
                     }
                 }
                 if alive {
-                    let _ = sub.sender.send(up_to_date());
+                    let _ = sub.sender.send(up_to_date(txid));
                     sub.last = next;
                 }
             }
@@ -139,17 +140,17 @@ impl LiveHub {
     }
 }
 
-fn encode(delta: &Delta) -> String {
+pub(crate) fn encode(delta: &Delta, txid: u32) -> String {
     let payload = match delta {
-        Delta::Insert { key, row } => json!({"op": "insert", "key": key, "row": row}),
-        Delta::Update { key, row } => json!({"op": "update", "key": key, "row": row}),
-        Delta::Delete { key } => json!({"op": "delete", "key": key}),
+        Delta::Insert { key, row } => json!({"op": "insert", "key": key, "row": row, "txid": txid}),
+        Delta::Update { key, row } => json!({"op": "update", "key": key, "row": row, "txid": txid}),
+        Delta::Delete { key } => json!({"op": "delete", "key": key, "txid": txid}),
     };
     format!("data: {payload}\n\n")
 }
 
-fn up_to_date() -> String {
-    "data: {\"op\":\"up-to-date\"}\n\n".to_string()
+pub(crate) fn up_to_date(txid: u32) -> String {
+    format!("data: {}\n\n", json!({"op": "up-to-date", "txid": txid}))
 }
 
 fn change_table(change: &RowChange) -> &str {

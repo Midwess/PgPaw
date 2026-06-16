@@ -1,11 +1,11 @@
 # Tasks: tanstack-db-live-sync
 
-## Progress: [0/18]
+## Progress: [2/18]
 
 ## 1. PgPaw: transaction id on live deltas
 
-- [ ] 1.1 Thread `txn.xid` through `on_commit`; add `txid` to `encode` and `up_to_date`; emit `up-to-date{txid}` even when the diff is empty
-- [ ] 1.2 Rust unit test: `encode`/`up_to_date` carry the txid
+- [x] 1.1 Thread `txn.xid` through `on_commit`; add `txid` to `encode` and `up_to_date`; emit `up-to-date{txid}` even when the diff is empty
+- [x] 1.2 Rust unit test: `encode`/`up_to_date` carry the txid
 
 ## 2. PgPaw: reset on CDC lag
 
