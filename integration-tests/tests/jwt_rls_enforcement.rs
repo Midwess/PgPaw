@@ -106,8 +106,17 @@ async fn jwt_scoped_query_enforces_upstream_rls() {
         .await;
     assert_eq!(
         private_live.status().as_u16(),
-        403,
-        "live streaming not allowed for access-controlled queries"
+        200,
+        "access-controlled queries stream live under the token's role"
+    );
+    let private_ctype = private_live
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+    assert!(
+        private_ctype.starts_with("text/event-stream"),
+        "private live opens an SSE stream, got {private_ctype}"
     );
 
     let public_live = server.live("select id, name from orgs order by id", None).await;
