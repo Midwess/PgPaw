@@ -1,0 +1,63 @@
+name: release-tanstack-db
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["tanstack-db-v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/tanstack-db
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: install
+        run: pnpm install --frozen-lockfile --ignore-workspace
+
+      - name: test
+        run: pnpm test
+
+      - name: build
+        run: pnpm build
+
+      - name: resolve version
+        id: v
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: verify tag matches package version
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          V: ${{ steps.v.outputs.version }}
+        run: |
+          TAG="${REF_NAME#tanstack-db-v}"
+          if [ "$TAG" != "$V" ]; then
+            echo "tag $REF_NAME does not match package.json version $V" >&2
+            exit 1
+          fi
+
+      - name: publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_SECRET_KEY }}
+          V: ${{ steps.v.outputs.version }}
+        run: |
+          if npm view "@pgpaw/tanstack-db@$V" version >/dev/null 2>&1; then
+            echo "@pgpaw/tanstack-db@$V already on npm, skipping publish"
+          else
+            npm publish --access public
+          fi

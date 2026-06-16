@@ -106,6 +106,21 @@ pnpm test
 pnpm build
 ```
 
+## Release
+
+Publishing is automated by `.github/workflows/release-tanstack-db.yml` (needs the
+`NPM_SECRET_KEY` repo secret). Bump `version` in `package.json`, then push a tag
+matching it:
+
+```bash
+git tag tanstack-db-v0.1.0
+git push origin tanstack-db-v0.1.0
+```
+
+The workflow installs, tests, builds, verifies the tag matches `package.json`,
+and publishes (skipping if that version is already on npm). It can also be run
+manually via **workflow_dispatch**.
+
 ## License
 
 MIT
