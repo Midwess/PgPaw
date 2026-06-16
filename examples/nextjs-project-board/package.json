@@ -1,0 +1,26 @@
+{
+  "name": "pgpaw-nextjs-project-board",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@pgpaw/tanstack-db": "^0.1.0",
+    "@tanstack/db": "^0.6.8",
+    "@tanstack/react-db": "^0.1.86",
+    "next": "^16.2.9",
+    "pg": "^8.21.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.7.0"
+  }
+}
