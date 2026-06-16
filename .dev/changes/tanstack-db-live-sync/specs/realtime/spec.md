@@ -71,3 +71,22 @@ serving stale data indefinitely.
 - WHEN the change feed reports a lagged/dropped batch
 - THEN each live subscription receives `{"op":"reset"}`
 - AND the client is expected to discard its state and re-load the snapshot
+
+## MODIFIED Requirements
+
+### Requirement: Cacheability Policy
+
+A public read SHALL be served via the existing snapshot path with `Cache-Control: public, max-age=259200` (72 hours) and an `ETag`. An access-controlled read SHALL be served with `Cache-Control: private, no-store`. Public snapshots SHALL use a bounded `max-age` (not `immutable`) so that a table reclassified public→private stops being served from shared caches within the TTL. An access-controlled query MAY be streamed live under the principal's role; its deltas SHALL be computed via the RLS-enforcing execution path and SHALL never be written to the shared snapshot cache.
+
+#### Scenario: Public snapshot is CDN-cacheable but bounded
+
+- WHEN a public query's snapshot is served at `GET /q/{hash}/{version}`
+- THEN the response carries `Cache-Control: public, max-age=259200` and an `ETag`
+
+#### Scenario: Live private streams under the role and is never cached
+
+- WHEN `POST /query?live=true` is access-controlled and carries a valid token
+- THEN PgPaw streams `200 text/event-stream` with `Cache-Control: no-store`
+- AND deltas are computed under the token's role and no snapshot is written to the shared cache
+
+This supersedes the `jwt-access-control` "Live private is rejected" scenario (which returned `403`).
