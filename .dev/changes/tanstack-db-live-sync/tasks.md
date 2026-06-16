@@ -1,6 +1,6 @@
 # Tasks: tanstack-db-live-sync
 
-## Progress: [2/18]
+## Progress: [4/18]
 
 ## 1. PgPaw: transaction id on live deltas
 
@@ -9,8 +9,8 @@
 
 ## 2. PgPaw: reset on CDC lag
 
-- [ ] 2.1 `reset_all` on `RecvError::Lagged` — emit `{"op":"reset"}` to all subs and clear them
-- [ ] 2.2 Rust unit test: reset frame format
+- [x] 2.1 `reset_all` on `RecvError::Lagged` — emit `{"op":"reset"}` to all subs and clear them
+- [x] 2.2 Rust unit test: reset frame format
 
 ## 3. PgPaw: authenticated RLS live
 

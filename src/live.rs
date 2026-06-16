@@ -43,7 +43,7 @@ impl LiveHub {
             loop {
                 match receiver.recv().await {
                     Ok(txn) => worker.on_commit(&txn).await,
-                    Err(RecvError::Lagged(_)) => continue,
+                    Err(RecvError::Lagged(_)) => worker.reset_all(),
                     Err(RecvError::Closed) => break,
                 }
             }
@@ -88,6 +88,14 @@ impl LiveHub {
             },
         );
         receiver
+    }
+
+    fn reset_all(&self) {
+        let mut subs = self.subs.lock().unwrap();
+        for sub in subs.values() {
+            let _ = sub.sender.send(reset());
+        }
+        subs.clear();
     }
 
     async fn on_commit(&self, txn: &CommittedTransaction) {
@@ -151,6 +159,10 @@ pub(crate) fn encode(delta: &Delta, txid: u32) -> String {
 
 pub(crate) fn up_to_date(txid: u32) -> String {
     format!("data: {}\n\n", json!({"op": "up-to-date", "txid": txid}))
+}
+
+pub(crate) fn reset() -> String {
+    "data: {\"op\":\"reset\"}\n\n".to_string()
 }
 
 fn change_table(change: &RowChange) -> &str {

@@ -6,7 +6,7 @@ use serde_json::json;
 
 use crate::classify::ReadClassifier;
 use crate::diff::{diff, keyed_map, Delta};
-use crate::live::{encode, up_to_date};
+use crate::live::{encode, reset, up_to_date};
 use crate::version::VersionIndex;
 
 fn classifier() -> ReadClassifier {
@@ -265,4 +265,9 @@ fn up_to_date_carries_txid() {
     assert!(frame.contains("\"op\":\"up-to-date\""));
     assert!(frame.contains("\"txid\":99"));
     assert!(frame.ends_with("\n\n"));
+}
+
+#[test]
+fn reset_frame_is_well_formed() {
+    assert_eq!(reset(), "data: {\"op\":\"reset\"}\n\n");
 }
