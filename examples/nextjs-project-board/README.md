@@ -30,7 +30,7 @@ left join users u on u.id = t.assignee_id
 ```bash
 psql "$DATABASE_URL" -f schema.sql            # 3 tables + seed projects/users
 pgpaw init  --pg-database myapp               # then publish all three tables
-pgpaw serve --pg-database myapp --port 8080
+pgpaw serve --pg-database myapp --port 8080 --cors-origin http://localhost:3000
 cp .env.example .env
 pnpm install && pnpm dev
 ```

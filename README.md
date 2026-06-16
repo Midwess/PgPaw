@@ -408,6 +408,7 @@ All flags have matching environment variables.
 | `--data-dir` | `CACHE_DATA_DIR` | `./cache-data` | pglite replica data directory |
 | `--max-connections` | `CACHE_MAX_CONNECTIONS` | `8`  | replica pool size            |
 | `--cache-size-bytes` | `CACHE_SIZE_BYTES` | `268_435_456` (256 MiB) | result-cache budget |
+| `--cors-origin` | `CORS_ORIGIN` | *(none)* | allow browser cross-origin calls: an origin, a comma list, or `*`. Required when a browser app on another origin calls PgPaw directly. |
 
 ### Upstream Postgres
 

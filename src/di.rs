@@ -35,6 +35,7 @@ pub struct ServerConfig {
     pub jwt_public_key: Option<String>,
     pub jwt_jwks_url: Option<String>,
     pub jwt_role_claim: String,
+    pub cors_origin: Option<String>,
     pub upstream: UpstreamConfig,
 }
 
@@ -47,6 +48,7 @@ pub struct Di {
     live: LiveHub,
     tables: HashSet<String>,
     bind_addr: String,
+    cors_origin: Option<String>,
     verifier: Option<Verifier>,
     security_cache: Arc<Mutex<(u64, HashMap<String, bool>)>>,
     #[allow(dead_code)]
@@ -98,6 +100,7 @@ impl Di {
             live,
             tables: replicated,
             bind_addr: config.bind_addr,
+            cors_origin: config.cors_origin,
             verifier,
             security_cache: Arc::new(Mutex::new((0, HashMap::new()))),
             cdc,
@@ -148,6 +151,10 @@ impl Di {
 
     pub fn bind_addr(&self) -> &str {
         &self.bind_addr
+    }
+
+    pub fn cors_origin(&self) -> Option<&str> {
+        self.cors_origin.as_deref()
     }
 
     pub fn verifier(&self) -> Option<&Verifier> {

@@ -36,8 +36,12 @@ by transaction id.
 
    ```bash
    pgpaw init  --pg-host 127.0.0.1 --pg-user postgres --pg-database myapp
-   pgpaw serve --pg-host 127.0.0.1 --pg-user postgres --pg-database myapp --port 8080
+   pgpaw serve --pg-host 127.0.0.1 --pg-user postgres --pg-database myapp --port 8080 \
+     --cors-origin http://localhost:3000
    ```
+
+   `--cors-origin` is required: the browser calls PgPaw directly (cross-origin),
+   so PgPaw must allow your app's origin (use `'*'` for local dev).
 
    Ensure `todos` is in the publication PgPaw reads (see `schema.sql`).
 

@@ -138,6 +138,9 @@ struct Options {
         default_value = "role"
     )]
     jwt_role_claim: String,
+    /// Allow browser cross-origin requests: an origin, a comma list, or "*"
+    #[arg(long = "cors-origin", env = "CORS_ORIGIN", global = true)]
+    cors_origin: Option<String>,
 }
 
 impl Options {
@@ -179,6 +182,7 @@ async fn run_cli() -> Result<(), CacheError> {
                 jwt_public_key: options.jwt_public_key.clone(),
                 jwt_jwks_url: options.jwt_jwks_url.clone(),
                 jwt_role_claim: options.jwt_role_claim.clone(),
+                cors_origin: options.cors_origin.clone(),
                 upstream: options.upstream(),
             };
             run(config).await?;
