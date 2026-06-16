@@ -1,6 +1,6 @@
 # Tasks: tanstack-db-live-sync
 
-## Progress: [14/18]
+## Progress: [16/18]
 
 ## 1. PgPaw: transaction id on live deltas
 
@@ -36,8 +36,8 @@
 
 ## 7. Documentation
 
-- [ ] 7.1 `packages/tanstack-db/README.md`
-- [ ] 7.2 Update PgPaw `README.md` protocol section (txid, reset, private inline, RLS live)
+- [x] 7.1 `packages/tanstack-db/README.md`
+- [x] 7.2 Update PgPaw `README.md` protocol section (txid, reset, private inline, RLS live)
 
 ## 8. Validation
 

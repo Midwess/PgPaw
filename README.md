@@ -222,24 +222,48 @@ reissued when upstream data changes.
 
 ### `POST /query?live=true`
 
-Opens an SSE stream. First event:
+Opens an SSE stream. First event for a public query is a CDN-cacheable
+snapshot pointer:
 
 ```
 data: {"type":"snapshot","url":"/q/{hash}/{version}","version":42}
 
 ```
 
-Subsequent events are row deltas:
+For an access-controlled (RLS) query the first event carries the initial rows
+inline (private results have no shared cacheable pointer), computed under the
+token's role:
 
 ```
-data: {"op":"insert","key":"7","row":{"id":7,"status":"paid"}}
-data: {"op":"update","key":"7","row":{"id":7,"status":"refunded"}}
-data: {"op":"delete","key":"7"}
-data: {"op":"up-to-date"}
+data: {"type":"snapshot","rows":[{"id":7,"status":"paid"}],"version":42}
+
 ```
 
-The terminal `up-to-date` event marks the end of one round of diffs; the
-stream stays open and emits another batch on the next relevant commit.
+Subsequent events are row deltas. Each carries `txid` — the low 32 bits of the
+committing upstream transaction (`pg_current_xact_id()`), for reconciling
+optimistic writes:
+
+```
+data: {"op":"insert","key":"7","row":{"id":7,"status":"paid"},"txid":7654321}
+data: {"op":"update","key":"7","row":{"id":7,"status":"refunded"},"txid":7654322}
+data: {"op":"delete","key":"7","txid":7654323}
+data: {"op":"up-to-date","txid":7654323}
+```
+
+The terminal `up-to-date` event marks the end of one round of diffs; it carries
+the `txid` even when the round produced no row changes (a no-op update, or a
+write outside the query's filter), so a client awaiting that txid never hangs.
+The stream stays open and emits another batch on the next relevant commit.
+
+If the replication feed lags and transactions are dropped, PgPaw emits a
+`reset` control event so clients re-load the snapshot instead of diverging:
+
+```
+data: {"op":"reset"}
+```
+
+[`@pgpaw/tanstack-db`](packages/tanstack-db) is a TanStack DB collection that
+consumes this stream directly.
 
 ### `GET /healthz`
 
@@ -366,7 +390,8 @@ PgPaw classifies each query against the replicated catalog:
   Requires a valid token; executed under the token's role and returned **inline**
   with `Cache-Control: private, no-store` (never cached, never CDN-served).
   Anything that cannot be proven public is treated as access-controlled
-  (fail-closed).
+  (fail-closed). `?live=true` is supported for access-controlled queries: deltas
+  are recomputed under the token's role and streamed inline, never cached.
 
 ---
 
