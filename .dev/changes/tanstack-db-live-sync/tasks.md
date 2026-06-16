@@ -1,6 +1,6 @@
 # Tasks: tanstack-db-live-sync
 
-## Progress: [16/18]
+## Progress: [18/18]
 
 ## 1. PgPaw: transaction id on live deltas
 
@@ -41,8 +41,8 @@
 
 ## 8. Validation
 
-- [ ] 8.1 `cargo build` + `cargo test`
-- [ ] 8.2 `pnpm build` + test for the library (note if network-blocked)
+- [x] 8.1 `cargo build` + `cargo test` (33 lib tests pass)
+- [x] 8.2 `pnpm build` + test for the library (10 tests pass; ESM+CJS+dts build)
 
 ---
 
@@ -51,3 +51,10 @@
 - User constraints: no code comments; commit + push to `main` after each step; no
   `Co-Authored-By` trailer.
 - Commits group tightly-coupled tasks into one compiling unit to keep `main` green.
+- Validation scope: Rust `cargo test --lib` (the unit suite the README documents)
+  and the library's vitest + tsup build. `integration-tests/` require a live
+  upstream Postgres + replica and were not run in this environment.
+- Code review (4 opus agents) run mid-implementation: fixed the critical reset
+  `truncate()` bug, bounded the txid set, and added a MODIFIED spec superseding
+  the jwt `live private → 403` rule. Documented limitations (multi-table/no-pk
+  live deletes; token `exp` over stream lifetime) in the package README.
