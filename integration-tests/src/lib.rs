@@ -128,6 +128,7 @@ impl Server {
             jwt_public_key: None,
             jwt_jwks_url: None,
             jwt_role_claim: "role".to_string(),
+            cors_origin: None,
             upstream: pgpaw::UpstreamConfig {
                 host: up.host.clone(),
                 port: up.port,
@@ -304,6 +305,7 @@ pub async fn run_and_capture_error(
         jwt_public_key: None,
         jwt_jwks_url: jwt_jwks_url.map(str::to_string),
         jwt_role_claim: "role".to_string(),
+        cors_origin: None,
         upstream: pgpaw::UpstreamConfig {
             host: up.host.clone(),
             port: up.port,
