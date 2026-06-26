@@ -1,464 +1,184 @@
-<img src="assets/avatar.png" alt="PgPaw" width="300" height="300" align="right" />
-
 # PgPaw
 
-> Read-only Postgres cache + realtime server over an embedded
-> [pglite](https://crates.io/crates/pglite-rs) logical replica.
+Read-only Postgres cache and realtime server over an embedded pglite-rs logical
+replica.
 
-[![Crates.io](https://img.shields.io/crates/v/pgpaw)](https://crates.io/crates/pgpaw)
-[![npm](https://img.shields.io/npm/v/pgpaw)](https://www.npmjs.com/package/pgpaw)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![MSRV 1.85](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](Cargo.toml)
-[![Repo](https://img.shields.io/badge/repo-Midwess%2FPgPaw-blue)](https://github.com/Midwess/PgPaw)
+PgPaw accepts read-only PostgreSQL `SELECT` queries, runs them against a local
+pglite-rs replica, and returns either a cacheable snapshot URL or a live SSE
+stream.
 
-**PgPaw is what you get when [ElectricSQL](https://electric-sql.com) and
-[Rocicorp Zero](https://zero.rocicorp.dev) meet on top of real Postgres.** One
-endpoint serves **CDN-cacheable, immutable query snapshots** *and* **live
-realtime updates** — yet, unlike shape- or ZQL-based sync engines, you query
-with **plain Postgres SQL**: no bespoke query language to learn. It drops
-straight into [TanStack](https://tanstack.com) Query / DB, and because every
-query runs inside an embedded Postgres ([pglite](https://crates.io/crates/pglite-rs))
-replica, you get **native Postgres Row-Level Security** — real RLS policies
-enforced by Postgres itself, fully reliable.
-
-PgPaw embeds a [pglite](https://crates.io/crates/pglite-rs) instance as a
-**logical replica** of an upstream Postgres and serves raw read-only SQL over
-HTTP, with three things that are usually painful to bolt on:
-
-1. **Precise, watermark-derived cache invalidation** keyed on per-table / per-PK
-   LSN state.
-2. **CDN-cacheable, immutable versioned snapshots** — `303` redirects to a
-   content-hash URL with `Cache-Control: public, max-age=31536000, immutable`.
-3. **Realtime deltas over SSE** — first event is a snapshot pointer, then
-   `insert` / `update` / `delete` events per affected row.
-
----
-
-## Why
-
-You have a Postgres you can't read-scalably, a CDN that wants immutable URLs,
-and clients that want both a *snapshot* and a *live feed* from the same query.
-PgPaw is a small single-purpose Rust service that sits in front and gives you
-all three.
-
-| If you want…                                  | You get…                                            |
-| --------------------------------------------- | --------------------------------------------------- |
-| Sub-millisecond cache hits in front of PG     | In-process `moka` cache, keyed on `(sql, version)`  |
-| CDN cacheable responses                       | `303` → `/q/{hash}/{version}` with long max-age     |
-| Live updates without re-querying              | SSE stream of row-level deltas from a CDC bridge    |
-| Safe, read-only surface area                  | SQL-classifier rejects writes, DDL, `FOR UPDATE`…   |
-| Tiny ops footprint                            | One static binary, one config, one upstream         |
-
----
-
-## How it works
-
-```
-            ┌──────────────────────────┐
-            │  Upstream Postgres       │
-            │  (wal_level=logical,     │
-            │   PUBLICATION,           │
-            │   DDL event trigger)     │
-            └────────────┬─────────────┘
-                         │  logical replication
-                         ▼
-            ┌──────────────────────────┐
-            │  pglite replica          │
-            │  (embedded, multi-proc)  │
-            └────────────┬─────────────┘
-                         │
-            ┌────────────┴─────────────┐
-            │  PgPaw (this crate)      │
-            │                          │
-            │  ReadClassifier ──►      │ ──► POST /query ──► 303 ──► /q/{hash}/{v}
-            │  VersionIndex (LSN) ──►  │       ▲                Cache-Control: immutable
-            │  moka QueryCache ──►     │       │ live=true      (CDN-cacheable)
-            │  CdcBridge (LSN feed) ─► │ ──► POST /query?live=true
-            │  LiveHub (SSE deltas) ─► │       snapshot event
-            └──────────────────────────┘      then insert/update/delete SSE
-```
-
-### Walkthrough
-
-<img src="assets/demo.svg" alt="PgPaw cache and live-delta walkthrough" width="880" />
-
-The animation above is a 6-step loop. Watch the bottom panel:
-
-1. **POST /query** — client posts a read-only `SELECT`. PgPaw parses, classifies,
-   fingerprints the SQL.
-2. **303 See Other** — instead of returning the body, PgPaw redirects to an
-   **immutable** URL `/q/{hash}/v=42`. The `v=42` is the LSN-derived version
-   for the touched `(table, pk, value)` tuple.
-3. **CDN cache hit** — the client (or any CDN edge) serves `/q/9a4f/v=42` for
-   the next year. The body never re-validates because the URL *is* the
-   content+version.
-4. **Upstream write** — an `UPDATE` on upstream Postgres commits, the logical
-   replication feed carries it into the pglite replica, the `CdcBridge` thread
-   updates `VersionIndex[(orders, id, 7)]` from 42 → 43.
-5. **POST /query (same SQL)** — same fingerprint, but version is now 43, so
-   PgPaw issues a **new** immutable URL `/q/9a4f/v=43`. The old URL keeps
-   serving its frozen snapshot.
-6. **SSE delta** — any subscriber to `/query?live=true` for that SQL receives
-   the row-level `update` event, then an `up-to-date` heartbeat.
-
-- **`ReadClassifier`** parses the SQL, rejects anything that isn't a single
-  read-only `SELECT`, and extracts the table list + equality filters.
-- **`VersionIndex`** consumes CDC transactions from the pglite replica and
-  tracks the highest LSN per `(table, column, value)` (and per table for
-  `TRUNCATE` / non-anchorable queries). The version of a query is the max LSN
-  across the tables it touches.
-- **`QueryCache`** stores `key = sql-fingerprint:version → result`. The
-  fingerprint is stable for the parsed statement, the version is monotonic with
-  upstream writes — so the cache key is immutable until a relevant write
-  actually occurs.
-- **`LiveHub`** re-runs the user SQL after each committed transaction that
-  affects a touched table, diffs the new rows against the previous snapshot, and
-  pushes row-level deltas to all subscribers.
-- **Watermarks** are derived from CDC LSNs, not wall-clock, so cache hits and
-  misses are deterministic with respect to upstream commit order.
-
----
+Full docs: https://midwess.com/pgpaw
 
 ## Install
 
-PgPaw is a single static binary. Install it with whichever toolchain you have:
+```bash
+cargo install pgpaw
+```
+
+or:
 
 ```bash
-# via Cargo (builds from source)
-cargo install pgpaw
-
-# via npm (downloads the prebuilt binary for your platform)
 npm install -g pgpaw
 ```
 
-Prebuilt binaries: Linux x86_64 and macOS Apple Silicon. Other platforms build
-from source via `cargo install pgpaw`.
+## How it works
 
----
+```txt
+Upstream Postgres
+  publication + logical replication slot
+        |
+        v
+pglite-rs replica
+  embedded multi-process Postgres
+        |
+        v
+PgPaw
+  ReadClassifier + VersionIndex + QueryCache + LiveHub
+        |
+        v
+HTTP clients
+  snapshots or SSE deltas
+```
 
 ## Quickstart
 
-Prereqs: `pgpaw` installed (see [Install](#install)) and a reachable Postgres
-13+ with superuser access (for the one-time `init` step).
+Prepare upstream Postgres:
 
 ```bash
-# 1. one-time upstream prep: sets wal_level=logical, creates the
-#    publication, and installs a DDL event trigger
 pgpaw init \
-    --pg-host 127.0.0.1 \
-    --pg-user postgres \
-    --pg-password $POSTGRES_PASSWORD \
-    --pg-database myapp
-
-# 2. restart Postgres if `init` changed wal_level (it prints a notice)
-
-# 3. serve
-pgpaw serve \
-    --pg-host 127.0.0.1 \
-    --pg-user postgres \
-    --pg-password $POSTGRES_PASSWORD \
-    --pg-database myapp \
-    --port 8080
+  --pg-host 127.0.0.1 \
+  --pg-port 5432 \
+  --pg-user postgres \
+  --pg-password "$POSTGRES_PASSWORD" \
+  --pg-database myapp
 ```
 
-Try it:
+Start the server:
 
 ```bash
-# snapshot (HTTP cacheable)
+pgpaw serve \
+  --host 127.0.0.1 \
+  --port 8080 \
+  --data-dir ./cache-data \
+  --pg-host 127.0.0.1 \
+  --pg-user postgres \
+  --pg-password "$POSTGRES_PASSWORD" \
+  --pg-database myapp
+```
+
+Query a public snapshot:
+
+```bash
 curl -i -X POST http://127.0.0.1:8080/query \
-     -H 'content-type: application/json' \
-     -d '{"sql":"select id, email from users where id = 7"}'
-
-# follow the 303
-curl http://127.0.0.1:8080/q/<hash>/<version>
-
-# live
-curl -N -X POST 'http://127.0.0.1:8080/query?live=true' \
-     -H 'content-type: application/json' \
-     -d '{"sql":"select id, status from orders"}'
+  -H "content-type: application/json" \
+  -d '{"sql":"select id, email from users where id = 7"}'
 ```
 
----
+Public response:
 
-## HTTP API
-
-| Method | Path                       | Purpose                                                     |
-| ------ | -------------------------- | ----------------------------------------------------------- |
-| `POST` | `/query`                   | Run a read-only `SELECT`, return a `303` to the snapshot    |
-| `POST` | `/query?live=true`         | Run, then stream SSE deltas                                 |
-| `GET`  | `/q/{hash}/{version}`      | Fetch an immutable, CDN-cacheable snapshot                  |
-| `GET`  | `/healthz`                 | Liveness + replica watermark (`ok` / `halted`)              |
-
-### `POST /query`
-
-Request:
-
-```json
-{ "sql": "select id, email from users where id = 7" }
-```
-
-Response (snapshot mode): `303 See Other` with headers:
-
-```
+```http
+HTTP/1.1 303 See Other
 Location: /q/{hash}/{version}
 Cache-Control: no-store
 ```
 
-The hash is a `DefaultHasher` of the parsed statement, the version is the
-`VersionIndex` value at lookup time.
+Fetch the snapshot:
 
-### `GET /q/{hash}/{version}`
-
+```bash
+curl http://127.0.0.1:8080/q/{hash}/{version}
 ```
+
+Subscribe live:
+
+```bash
+curl -N -X POST "http://127.0.0.1:8080/query?live=true" \
+  -H "content-type: application/json" \
+  -d '{"sql":"select id, status from orders"}'
+```
+
+## HTTP API
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/query` | Run a read-only SQL query. Public queries redirect to a snapshot. Private queries return inline JSON. |
+| `POST` | `/query?live=true` | Stream initial snapshot plus row deltas. |
+| `GET` | `/q/{hash}/{version}` | Fetch cached public snapshot. |
+| `GET` | `/healthz` | Return replica status and watermark. |
+
+Snapshot hits return:
+
+```http
 HTTP/1.1 200 OK
 Content-Type: application/json
 ETag: {hash}:{version}
-Cache-Control: public, max-age=31536000, immutable
+Cache-Control: public, max-age=259200
 ```
 
-The body is the JSON-array result of the query, exactly as pglite returned it.
-Safe to cache at the CDN edge for a year — the key is content-addressed and
-reissued when upstream data changes.
+## Live events
 
-### `POST /query?live=true`
+Public query first event:
 
-Opens an SSE stream. First event for a public query is a CDN-cacheable
-snapshot pointer:
-
-```
+```txt
 data: {"type":"snapshot","url":"/q/{hash}/{version}","version":42}
-
 ```
 
-For an access-controlled (RLS) query the first event carries the initial rows
-inline (private results have no shared cacheable pointer), computed under the
-token's role:
+Private query first event:
 
-```
-data: {"type":"snapshot","rows":[{"id":7,"status":"paid"}],"version":42}
-
+```txt
+data: {"type":"snapshot","rows":[{"id":1,"title":"Ship"}],"version":42}
 ```
 
-Subsequent events are row deltas. Each carries `txid` — the low 32 bits of the
-committing upstream transaction (`pg_current_xact_id()`), for reconciling
-optimistic writes:
+Delta events:
 
-```
-data: {"op":"insert","key":"7","row":{"id":7,"status":"paid"},"txid":7654321}
-data: {"op":"update","key":"7","row":{"id":7,"status":"refunded"},"txid":7654322}
-data: {"op":"delete","key":"7","txid":7654323}
-data: {"op":"up-to-date","txid":7654323}
+```txt
+data: {"op":"insert","key":"7","row":{"id":7,"title":"New"},"txid":123}
+data: {"op":"update","key":"7","row":{"id":7,"title":"Done"},"txid":124}
+data: {"op":"delete","key":"7","txid":125}
+data: {"op":"up-to-date","txid":125}
 ```
 
-The terminal `up-to-date` event marks the end of one round of diffs; it carries
-the `txid` even when the round produced no row changes (a no-op update, or a
-write outside the query's filter), so a client awaiting that txid never hangs.
-The stream stays open and emits another batch on the next relevant commit.
+`up-to-date` is sent after each relevant commit round, even when no row changed.
 
-If the replication feed lags and transactions are dropped, PgPaw emits a
-`reset` control event so clients re-load the snapshot instead of diverging:
+## SQL rules
 
-```
-data: {"op":"reset"}
-```
+PgPaw accepts one read-only `SELECT` over replicated tables.
 
-[`@pgpaw/tanstack-db`](packages/tanstack-db) is a TanStack DB collection that
-consumes this stream directly.
+Rejected input includes:
 
-### `GET /healthz`
+- multiple statements;
+- writes and DDL;
+- `SELECT INTO`;
+- `FOR UPDATE` and `FOR SHARE`;
+- non-replicated tables;
+- side-effecting functions such as `nextval` and advisory lock functions;
+- volatile functions such as `now`, `random`, and `gen_random_uuid`.
 
-```json
-{ "status": "ok", "watermark": 12345678 }
-```
+## Authorization
 
-or, when the replica has halted:
+Public tables use the shared cache path. A query is private if any touched table
+has RLS enabled or lacks `PUBLIC SELECT`.
 
-```json
-{ "status": "halted", "reason": "..." }
-```
+Private queries require:
 
-### Error envelope
-
-```json
-{ "name": "RejectedError", "message": "table `secrets` is not available in this cache (not replicated)" }
+```http
+Authorization: Bearer <token>
 ```
 
-Status codes: `400` parse / rejection, `401` missing / invalid / expired token
-on an access-controlled query, `403` the token's role is denied the table or
-columns, `503` if the replica is halted, `500` otherwise.
-
----
-
-## SQL classifier — what's allowed
-
-PgPaw only serves single-statement, read-only `SELECT` queries, and only
-against tables present in the publication. Specifically it rejects:
-
-- multi-statement input (`select 1; select 2`)
-- `INSERT` / `UPDATE` / `DELETE` / `MERGE` / DDL
-- `SELECT ... FOR UPDATE / FOR SHARE` (locking reads)
-- `SELECT INTO` (writes a variable)
-- side-effecting functions: `nextval`, `setval`,
-  `pg_advisory_lock[_xact|_try|_unlock]`
-- non-deterministic reads: `now`, `random`, `random_normal`, `clock_timestamp`,
-  `timeofday`, `statement_timestamp`, `gen_random_uuid`, `uuid_generate_v4`
-- references to tables not in the publication
-
-A `WHERE col = literal` on a single table that is either the table's primary
-key or a column on a `REPLICA IDENTITY FULL` table becomes a per-row anchor —
-changes to other rows do not invalidate the cache entry.
-
----
-
-## Authorization (Row-Level Security)
-
-PgPaw enforces your **upstream Postgres Row-Level Security** on cached reads. It
-verifies a JWT and runs access-controlled queries **as the token's role**, so the
-embedded replica's own RLS policies filter the rows — the database is the
-authority, not PgPaw. PgPaw only *verifies* tokens; it never issues them.
-
-### 1. Configure a verification key
-
-Give PgPaw the key your existing auth signs with — symmetric or asymmetric:
+Configure one JWT key source:
 
 ```bash
-# HS256 shared secret
-pgpaw serve --jwt-secret "$JWT_SECRET" ...
-# or an RS256/ES256 public key (PEM) — verify-only, no shared secret
-pgpaw serve --jwt-public-key "$(cat jwt_public.pem)" ...
+pgpaw serve --jwt-secret "$JWT_SECRET" --jwt-role-claim role
 ```
 
-With **no** key, PgPaw runs anonymous-only: it serves public data and rejects
-access-controlled queries with `401`.
-
-### 2. Write RLS on the upstream
-
-Policies live in **your** Postgres and are replicated into the cache
-automatically. Enable + force RLS, target a role, and read claims from
-`request.jwt.claims`:
-
-```sql
-ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
-ALTER TABLE orders FORCE ROW LEVEL SECURITY;
-GRANT SELECT ON orders TO member;
-CREATE POLICY orders_by_org ON orders FOR SELECT TO member
-  USING ( org_id = ((select current_setting('request.jwt.claims', true))::json->>'org_id')::int );
-```
-
-Guidelines:
-
-- **Self-contained policies** — read `current_setting('request.jwt.claims', true)`
-  inline; do not depend on helper functions like `auth.uid()` (functions are not
-  replicated into the cache yet).
-- Wrap `current_setting(...)` in `(select …)` so it is evaluated once per query,
-  not once per row.
-- Index the columns your policies filter on (e.g. `org_id`).
-- For multi-tenant, combine a permissive per-role `SELECT` policy with a
-  `RESTRICTIVE` tenant policy.
-
-### 3. The JWT (claims contract)
-
-Your auth service mints HS256/RS256/ES256 tokens; PgPaw verifies them. Required:
-
-- `exp` — expiry (validated; `alg` is pinned to the configured key).
-- a **`role` claim** (name configurable via `--jwt-role-claim`, default `role`)
-  whose value is a real, non-superuser database role your policies target
-  (`TO <role>`).
-
-Every other claim is free-form: PgPaw forwards the whole verified payload into
-`request.jwt.claims`, and your policies decide which keys matter. A claim key
-must match what the policy reads (`->>'key'`); it need **not** match a column
-name (the policy is the bridge).
-
-### 4. Send the token
+or:
 
 ```bash
-curl -X POST http://127.0.0.1:8080/query \
-     -H 'authorization: Bearer <jwt>' \
-     -H 'content-type: application/json' \
-     -d '{"sql":"select id, total from orders"}'
+pgpaw serve --jwt-public-key "$JWT_PUBLIC_KEY" --jwt-role-claim role
 ```
 
-### Public vs access-controlled
-
-PgPaw classifies each query against the replicated catalog:
-
-- **Public** — every referenced table has RLS disabled **and** `SELECT` granted
-  to `PUBLIC`. Served from the shared cache (`303 → /q/{hash}/{version}`,
-  `Cache-Control: public, max-age=259200`). No token required.
-- **Access-controlled** — anything else (RLS enabled, or not `PUBLIC`-readable).
-  Requires a valid token; executed under the token's role and returned **inline**
-  with `Cache-Control: private, no-store` (never cached, never CDN-served).
-  Anything that cannot be proven public is treated as access-controlled
-  (fail-closed). `?live=true` is supported for access-controlled queries: deltas
-  are recomputed under the token's role and streamed inline, never cached.
-
----
-
-## Configuration
-
-All flags have matching environment variables.
-
-### HTTP
-
-| Flag      | Env            | Default       | Description                  |
-| --------- | -------------- | ------------- | ---------------------------- |
-| `--host`  | `CACHE_HOST`   | `127.0.0.1`   | bind host                    |
-| `--port`  | `CACHE_PORT`   | `8080`        | bind port                    |
-| `--data-dir` | `CACHE_DATA_DIR` | `./cache-data` | pglite replica data directory |
-| `--max-connections` | `CACHE_MAX_CONNECTIONS` | `8`  | replica pool size            |
-| `--cache-size-bytes` | `CACHE_SIZE_BYTES` | `268_435_456` (256 MiB) | result-cache budget |
-| `--cors-origin` | `CORS_ORIGIN` | *(none)* | allow browser cross-origin calls: an origin, a comma list, or `*`. Required when a browser app on another origin calls PgPaw directly. |
-
-### Upstream Postgres
-
-| Flag             | Env                  | Default            | Description                          |
-| ---------------- | -------------------- | ------------------ | ------------------------------------ |
-| `--pg-host`      | `UPSTREAM_HOST`      | `127.0.0.1`        |                                      |
-| `--pg-port`      | `UPSTREAM_PORT`      | `5432`             |                                      |
-| `--pg-user`      | `UPSTREAM_USER`      | `postgres`         |                                      |
-| `--pg-password`  | `UPSTREAM_PASSWORD`  | *(empty)*          |                                      |
-| `--pg-database`  | `UPSTREAM_DATABASE`  | `postgres`         |                                      |
-| `--publication`  | `UPSTREAM_PUBLICATION` | `cache_server_pub` | logical-replication publication    |
-| `--slot`         | `UPSTREAM_SLOT`      | `cache_server_slot` | replication slot name               |
-| `--sslmode`      | `UPSTREAM_SSLMODE`   | `disable`          | `disable` / `prefer` / `require` / `verify-full` |
-
-### Authorization (JWT)
-
-Set at most one verification key. With none, PgPaw is anonymous-only (public data only).
-
-| Flag               | Env              | Default     | Description                                         |
-| ------------------ | ---------------- | ----------- | --------------------------------------------------- |
-| `--jwt-secret`     | `JWT_SECRET`     | *(none)*    | HS256 shared secret                                 |
-| `--jwt-public-key` | `JWT_PUBLIC_KEY` | *(none)*    | RS256/ES256 verification public key (PEM)           |
-| `--jwt-jwks-url`   | `JWT_JWKS_URL`   | *(none)*    | JWKS endpoint — *planned*; use `--jwt-public-key` today |
-| `--jwt-role-claim` | `JWT_ROLE_CLAIM` | `role`      | JWT claim naming the Postgres role to run reads as  |
-
-## Testing
-
-```bash
-cargo test
-```
-
-The unit tests in `src/tests/mod.rs` cover:
-
-- `ReadClassifier`: read-only `SELECT` acceptance, rejection of writes / DDL,
-  `FOR UPDATE`, non-replicated tables, multi-statement, volatile functions,
-  equality-filter extraction.
-- `VersionIndex`: per-PK cache anchoring, per-value anchoring on
-  `REPLICA IDENTITY FULL` tables, table-level fallback, and join-query
-  fallback.
-- `diff`: insert / update / delete detection, unchanged-row elision,
-  `keyed_map` PK + hash-key fallback.
-
----
+`--jwt-jwks-url` is present as a CLI option, but JWKS verification is not
+implemented yet.
 
 ## License
 
-[MIT](LICENSE) — see the file for full text.
-
-## Acknowledgments
-
-PgPaw is a focused, minimal extraction of the cache + realtime layer that
-shipped inside the [pglite-rs](https://github.com/Midwess/pglite-rs) project.
-The full commit history of that subsystem is preserved in this repository.
+MIT
