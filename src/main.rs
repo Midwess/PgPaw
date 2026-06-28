@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 
-use pgpaw::{init, run, CacheError, ServerConfig, UpstreamConfig};
+use pgpaw::{init, run, run_primary, CacheError, PrimaryConfig, ServerConfig, UpstreamConfig};
 
 #[derive(Parser)]
 #[command(
@@ -23,6 +23,8 @@ enum Command {
     Init,
     /// Run the cache server (default)
     Serve,
+    /// Run as a writable primary: embedded Postgres over TCP (no upstream)
+    Primary,
 }
 
 #[derive(Args)]
@@ -141,6 +143,22 @@ struct Options {
     /// Allow browser cross-origin requests: an origin, a comma list, or "*"
     #[arg(long = "cors-origin", env = "CORS_ORIGIN", global = true)]
     cors_origin: Option<String>,
+    /// Primary mode: TCP listen address for the embedded Postgres
+    #[arg(
+        long = "primary-listen",
+        env = "PRIMARY_LISTEN",
+        global = true,
+        default_value = "127.0.0.1"
+    )]
+    primary_listen: String,
+    /// Primary mode: TCP port for the embedded Postgres
+    #[arg(
+        long = "primary-port",
+        env = "PRIMARY_PORT",
+        global = true,
+        default_value_t = 5432
+    )]
+    primary_port: u16,
 }
 
 impl Options {
@@ -186,6 +204,15 @@ async fn run_cli() -> Result<(), CacheError> {
                 upstream: options.upstream(),
             };
             run(config).await?;
+        }
+        Command::Primary => {
+            run_primary(PrimaryConfig {
+                data_dir: options.data_dir.clone(),
+                listen_addresses: options.primary_listen.clone(),
+                port: options.primary_port,
+                max_connections: options.max_connections,
+            })
+            .await?;
         }
     }
     Ok(())
