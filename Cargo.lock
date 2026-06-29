@@ -1803,7 +1803,9 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "pglite-rs"
-version = "0.2.6"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce51c5797f88bf0e5f11764118d5392bef6aae38b668947e3b9dcc0dcd42f047"
 dependencies = [
  "bytes",
  "fallible-iterator",
@@ -1821,27 +1823,39 @@ dependencies = [
 
 [[package]]
 name = "pglite-rs-lib-aarch64-apple-darwin"
-version = "0.2.6"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ba22160e74de33d75cb1209da1fbb5816afd3506a9b47df2c81f54066f6bd97"
 
 [[package]]
 name = "pglite-rs-lib-aarch64-unknown-linux-gnu"
-version = "0.2.6"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47d2b934381ed7bbde6400034ec7294cb68ec46fb745b478b38de3913328126f"
 
 [[package]]
 name = "pglite-rs-lib-x86_64-apple-darwin"
-version = "0.2.6"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "71a8da533f2f9a82700af976acb573495be5bbdedeef90d1133d882c45128e61"
 
 [[package]]
 name = "pglite-rs-lib-x86_64-pc-windows-gnu"
-version = "0.2.6"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c84ae5eed7dd28f5d9069b62ddd68ff0ea2ee65b989cfb4e9dea227a5dee2896"
 
 [[package]]
 name = "pglite-rs-lib-x86_64-unknown-linux-gnu"
-version = "0.2.6"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32f15e7c780aba8873afdb1db6b1cd741f2f03ece5a7996cb83f7d7814e64606"
 
 [[package]]
 name = "pglite-rs-sys"
-version = "0.2.6"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e8c85cdc379a58bef741624ce9c98786818c1decc5c13bd3691a32d125a59d3"
 dependencies = [
  "libc",
  "pglite-rs-lib-aarch64-apple-darwin",
@@ -1854,7 +1868,7 @@ dependencies = [
 
 [[package]]
 name = "pgpaw"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "actix-cors",
  "actix-web",

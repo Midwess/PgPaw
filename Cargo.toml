@@ -1,6 +1,6 @@
 [package]
 name = "pgpaw"
-version = "0.2.5"
+version = "0.2.6"
 edition = "2021"
 rust-version = "1.85"
 license = "MIT"
@@ -18,7 +18,7 @@ name = "pgpaw"
 path = "src/main.rs"
 
 [dependencies]
-pglite-rs = { version = "0.2.6", features = ["replica", "multiple-process"] }
+pglite-rs = { version = "0.2.7", features = ["replica", "multiple-process"] }
 clap = { version = "4", features = ["derive", "env"] }
 actix-web = "4"
 actix-cors = "0.7"
@@ -31,6 +31,3 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 jsonwebtoken = "9"
-
-[patch.crates-io]
-pglite-rs = { path = "../pglite-rs/crates/pglite" }
