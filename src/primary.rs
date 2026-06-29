@@ -23,13 +23,18 @@ impl PrimaryConfig {
 }
 
 pub struct PrimaryHandle {
-    _db: PGlite,
+    db: PGlite,
     dsn: String,
 }
 
 impl PrimaryHandle {
     pub fn dsn(&self) -> &str {
         &self.dsn
+    }
+
+    pub async fn shutdown(self) -> Result<(), CacheError> {
+        self.db.close().await?;
+        Ok(())
     }
 }
 
@@ -58,7 +63,7 @@ pub async fn open_primary(config: &PrimaryConfig) -> Result<PrimaryHandle, Cache
         .connection_uri()
         .ok_or_else(|| CacheError::Config("primary engine exposes no connection_uri".into()))?;
     log::info!("event=primary_open_complete data_dir={:?}", config.data_dir);
-    Ok(PrimaryHandle { _db: db, dsn })
+    Ok(PrimaryHandle { db, dsn })
 }
 
 pub async fn run_primary(config: PrimaryConfig) -> Result<(), CacheError> {

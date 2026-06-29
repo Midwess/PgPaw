@@ -37,5 +37,5 @@ async fn primary_serves_writable_postgres_over_tcp() {
     let rows = client.query("SELECT id FROM t", &[]).await.unwrap();
     assert_eq!(rows[0].get::<_, i32>(0), 1);
 
-    drop(db);
+    db.shutdown().await.unwrap();
 }
