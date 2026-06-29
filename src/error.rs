@@ -4,6 +4,7 @@ use serde_json::json;
 pub enum CacheError {
     #[error(transparent)]
     Pglite(#[from] pglite::Error),
+    #[cfg(feature = "server")]
     #[error("upstream: {0}")]
     Upstream(#[from] tokio_postgres::Error),
     #[error("parse: {0}")]
@@ -28,6 +29,7 @@ impl CacheError {
     pub fn name(&self) -> &'static str {
         match self {
             Self::Pglite(_) => "PgliteError",
+            #[cfg(feature = "server")]
             Self::Upstream(_) => "UpstreamError",
             Self::Parse(_) => "ParseError",
             Self::Rejected(_) => "RejectedError",

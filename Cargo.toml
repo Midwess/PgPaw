@@ -16,21 +16,42 @@ name = "pgpaw"
 [[bin]]
 name = "pgpaw"
 path = "src/main.rs"
+required-features = ["server"]
+
+[features]
+default = ["server"]
+server = [
+    "dep:actix-web",
+    "dep:actix-cors",
+    "dep:tokio",
+    "dep:tokio-stream",
+    "dep:tokio-postgres",
+    "dep:sqlparser",
+    "dep:moka",
+    "dep:jsonwebtoken",
+    "dep:clap",
+    "dep:time",
+    "pglite-rs/replica",
+]
 
 [dependencies]
-pglite-rs = { version = "0.2.7", features = ["replica", "multiple-process"] }
-clap = { version = "4", features = ["derive", "env"] }
-actix-web = "4"
-actix-cors = "0.7"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
-tokio-stream = "0.1"
-tokio-postgres = "0.7"
-sqlparser = { version = "0.52", features = ["visitor"] }
-moka = { version = "0.12", features = ["future"] }
+pglite-rs = { version = "0.2.7", features = ["multiple-process"] }
+clap = { version = "4", features = ["derive", "env"], optional = true }
+actix-web = { version = "4", optional = true }
+actix-cors = { version = "0.7", optional = true }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"], optional = true }
+tokio-stream = { version = "0.1", optional = true }
+tokio-postgres = { version = "0.7", optional = true }
+sqlparser = { version = "0.52", features = ["visitor"], optional = true }
+moka = { version = "0.12", features = ["future"], optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-jsonwebtoken = "9"
+jsonwebtoken = { version = "9", optional = true }
 log = "0.4"
-time = { version = "0.3", features = ["formatting"] }
+time = { version = "0.3", features = ["formatting"], optional = true }
 tempfile = "3"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio-postgres = "0.7"
