@@ -10,6 +10,7 @@ mod live;
 mod primary;
 mod rows;
 mod setup;
+mod shadow;
 mod version;
 
 #[cfg(test)]
@@ -17,7 +18,8 @@ mod tests;
 
 pub use di::{Di, ServerConfig, UpstreamConfig};
 pub use error::CacheError;
-pub use primary::{open_primary, run_primary, PrimaryConfig};
+pub use primary::{open_primary, run_primary, PrimaryConfig, PrimaryHandle};
+pub use shadow::{open_shadow, ShadowHandle};
 
 pub async fn run(config: ServerConfig) -> Result<(), CacheError> {
     log::info!(
