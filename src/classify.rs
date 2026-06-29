@@ -119,7 +119,11 @@ impl ReadClassifier {
 
         let mut tables = Vec::new();
         let _ = visit_relations(statement, |name| {
-            let table = bare_lower(&name.to_string());
+            let table = name
+                .0
+                .last()
+                .map(|ident| ident.value.to_ascii_lowercase())
+                .unwrap_or_default();
             if !cte_names.contains(&table) && !tables.contains(&table) {
                 tables.push(table);
             }

@@ -9,46 +9,57 @@ pub async fn prepare(upstream: &UpstreamConfig) -> Result<(), CacheError> {
     let publication = &upstream.publication;
     if !is_identifier(publication) {
         return Err(CacheError::Config(format!(
-            "invalid publication name `{publication}` (use letters, digits, underscore)"
+            "Invalid publication name `{publication}`. Use only letters, digits, and underscore."
         )));
     }
 
-    println!("cache-server init");
+    log::info!(
+        "event=init_start upstream_host={} upstream_port={} upstream_user={} upstream_database={} publication={}",
+        upstream.host,
+        upstream.port,
+        upstream.user,
+        upstream.database,
+        publication,
+    );
+    println!("PgPaw init");
     println!(
-        "Target: postgres {}@{}:{}/{}",
+        "Upstream Postgres: {}@{}:{}/{}",
         upstream.user, upstream.host, upstream.port, upstream.database
     );
-    println!("Planned changes to your Postgres:");
-    println!("  1. if needed, ALTER SYSTEM SET wal_level=logical (+ max_wal_senders/max_replication_slots >= 10) — needs a Postgres restart to take effect");
-    println!(
-        "  2. CREATE PUBLICATION \"{publication}\" FOR ALL TABLES (only if it does not exist)"
-    );
-    println!("  3. install a DDL event trigger (CREATE FUNCTION + CREATE EVENT TRIGGER) so schema changes replicate online");
-    println!("The replication slot is created automatically when the server starts.");
-    print!("Proceed? [y/N] ");
+    println!();
+    println!("PgPaw will prepare logical replication on this database:");
+    println!("  1. Ensure wal_level=logical and max_wal_senders/max_replication_slots >= 10.");
+    println!("     These settings require a Postgres restart if PgPaw changes them.");
+    println!("  2. Ensure publication \"{publication}\" exists for all tables.");
+    println!("  3. Install a DDL event trigger so PgPaw notices schema changes while running.");
+    println!("PgPaw creates the replication slot automatically on the first `pgpaw serve` start.");
+    print!("Apply changes? [y/N] ");
     io::stdout().flush().ok();
 
     if !confirm() {
-        println!("aborted; no changes made.");
+        log::info!("event=init_aborted result=no_changes");
+        println!("No changes made.");
         return Ok(());
     }
 
+    log::info!("event=init_confirmed");
     let client = connect(upstream).await?;
+    log::info!("event=init_connected");
     apply(&client, publication).await
 }
 
 pub async fn preflight(upstream: &UpstreamConfig) -> Result<(), CacheError> {
     let client = connect(upstream).await.map_err(|e| {
         CacheError::Config(format!(
-            "cannot reach upstream Postgres at {}:{} ({e}); check --pg-host/--pg-port/--pg-user/--pg-password",
-            upstream.host, upstream.port
+            "Could not connect to upstream Postgres at {}:{} as {} ({e}). Check --pg-host, --pg-port, --pg-user, and --pg-password.",
+            upstream.host, upstream.port, upstream.user
         ))
     })?;
 
     let wal_level = setting(&client, "wal_level").await?;
     if wal_level != "logical" {
         return Err(CacheError::Config(format!(
-            "upstream wal_level is '{wal_level}', must be 'logical'. Run `cache-server init` then RESTART Postgres for it to take effect."
+            "Upstream Postgres has wal_level='{wal_level}', but PgPaw requires 'logical'. Run `pgpaw init`; if it changes WAL settings, restart Postgres before `pgpaw serve`."
         )));
     }
 
@@ -56,7 +67,7 @@ pub async fn preflight(upstream: &UpstreamConfig) -> Result<(), CacheError> {
         let value: i64 = setting(&client, param).await?.parse().unwrap_or(0);
         if value < 1 {
             return Err(CacheError::Config(format!(
-                "upstream {param} is {value}, must be >= 1. Run `cache-server init` then RESTART Postgres."
+                "Upstream Postgres has {param}={value}, but PgPaw requires at least 1. Run `pgpaw init`; if it changes WAL settings, restart Postgres before `pgpaw serve`."
             )));
         }
     }
@@ -70,7 +81,7 @@ pub async fn preflight(upstream: &UpstreamConfig) -> Result<(), CacheError> {
         .get(0);
     if !exists {
         return Err(CacheError::Config(format!(
-            "upstream publication '{}' does not exist. Run `cache-server init` to create it.",
+            "Publication \"{}\" does not exist on upstream Postgres. Run `pgpaw init` to create it, or pass --publication with an existing publication.",
             upstream.publication
         )));
     }
@@ -93,20 +104,46 @@ async fn connect(upstream: &UpstreamConfig) -> Result<Client, CacheError> {
 
 async fn apply(client: &Client, publication: &str) -> Result<(), CacheError> {
     let mut needs_restart = false;
+    let mut needs_manual_settings = false;
 
     let wal_level = setting(client, "wal_level").await?;
     if wal_level == "logical" {
-        println!("  ✓ wal_level = logical");
+        log::info!("event=init_setting_ok setting=wal_level value=logical");
+        println!("  ✓ wal_level is already logical");
     } else if alter_system(client, "wal_level", "logical").await {
-        println!("  ✓ set wal_level = logical (was '{wal_level}')");
+        log::info!(
+            "event=init_setting_changed setting=wal_level old_value={:?} new_value=logical restart_required=true",
+            wal_level,
+        );
+        println!("  ✓ wal_level set to logical (was '{wal_level}')");
         needs_restart = true;
+    } else {
+        needs_manual_settings = true;
     }
 
     for param in ["max_wal_senders", "max_replication_slots"] {
         let current: i64 = setting(client, param).await?.parse().unwrap_or(0);
         if current < 10 && alter_system(client, param, "10").await {
-            println!("  ✓ set {param} = 10 (was {current})");
+            log::info!(
+                "event=init_setting_changed setting={} old_value={} new_value=10 restart_required=true",
+                param,
+                current,
+            );
+            println!("  ✓ {param} set to 10 (was {current})");
             needs_restart = true;
+        } else if current < 10 {
+            log::warn!(
+                "event=init_setting_manual_required setting={} current_value={} required_min=10",
+                param,
+                current,
+            );
+            needs_manual_settings = true;
+        } else {
+            log::info!(
+                "event=init_setting_ok setting={} value={} required_min=10",
+                param,
+                current,
+            );
         }
     }
 
@@ -118,6 +155,10 @@ async fn apply(client: &Client, publication: &str) -> Result<(), CacheError> {
         .await?
         .get(0);
     if exists {
+        log::info!(
+            "event=init_publication_ok publication={} existed=true",
+            publication
+        );
         println!("  ✓ publication \"{publication}\" already exists");
     } else {
         client
@@ -125,24 +166,47 @@ async fn apply(client: &Client, publication: &str) -> Result<(), CacheError> {
                 "CREATE PUBLICATION \"{publication}\" FOR ALL TABLES"
             ))
             .await?;
-        println!("  ✓ created publication \"{publication}\" FOR ALL TABLES");
+        log::info!(
+            "event=init_publication_created publication={} all_tables=true",
+            publication
+        );
+        println!("  ✓ publication \"{publication}\" created for all tables");
     }
 
     match install_ddl_trigger(client).await {
-        Ok(()) => println!("  ✓ installed DDL event trigger (online schema-change capture)"),
-        Err(error) => println!(
-            "  ⚠ could not install DDL event trigger ({error}); online schema changes fall back to reactive recovery (needs superuser)"
-        ),
+        Ok(()) => {
+            log::info!("event=init_ddl_trigger_installed result=ok");
+            println!("  ✓ DDL event trigger installed")
+        }
+        Err(error) => {
+            log::warn!(
+                "event=init_ddl_trigger_skipped result=error error={:?}",
+                error.to_string()
+            );
+            println!(
+                "  ⚠ DDL event trigger not installed ({error}). PgPaw can still recover from schema changes, but online detection requires a superuser."
+            )
+        }
     }
 
-    if needs_restart {
+    if needs_manual_settings {
+        log::warn!("event=init_complete result=manual_wal_settings_required");
         println!();
+        println!("PgPaw init finished with manual WAL settings still required.");
         println!(
-            "⚠ restart Postgres for the changed settings to take effect (they are restart-only):"
+            "Apply the ALTER SYSTEM statements above, restart Postgres, then run `pgpaw serve`."
         );
-        println!("    docker compose restart <postgres-service>   # or: pg_ctl restart");
+    } else if needs_restart {
+        log::warn!("event=init_complete result=restart_required");
+        println!();
+        println!("⚠ Restart Postgres before running `pgpaw serve`; WAL settings are restart-only:");
+        println!("    docker compose restart <postgres-service>");
+        println!("    # or: pg_ctl restart");
+        println!("PgPaw init complete. After Postgres restarts, run `pgpaw serve`.");
+    } else {
+        log::info!("event=init_complete result=ready");
+        println!("PgPaw init complete. Run `pgpaw serve` to start PgPaw.");
     }
-    println!("init complete — after any restart, start the server with `cache-server serve`.");
     Ok(())
 }
 
@@ -176,7 +240,14 @@ async fn alter_system(client: &Client, param: &str, value: &str) -> bool {
     {
         Ok(_) => true,
         Err(error) => {
-            println!("  ⚠ could not set {param} = {value} ({error}); set it manually (needs superuser): ALTER SYSTEM SET {param} = '{value}'; then restart");
+            log::warn!(
+                "event=init_setting_change_failed setting={} requested_value={} error={:?}",
+                param,
+                value,
+                error.to_string(),
+            );
+            println!("  ⚠ {param} was not changed ({error}). Set it manually with a superuser:");
+            println!("    ALTER SYSTEM SET {param} = '{value}';");
             false
         }
     }

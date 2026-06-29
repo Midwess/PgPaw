@@ -30,6 +30,17 @@ fn select_over_non_replicated_table_is_rejected() {
 }
 
 #[test]
+fn quoted_identifier_matches_replicated_table() {
+    let mut replicated = HashSet::new();
+    replicated.insert("Sandbox".to_string());
+    let classifier = ReadClassifier::new(replicated);
+    let query = classifier
+        .classify("select * from \"Sandbox\" where id = 1")
+        .unwrap();
+    assert!(query.tables.contains(&"sandbox".to_string()));
+}
+
+#[test]
 fn insert_is_rejected() {
     assert!(classifier()
         .classify("insert into users (id) values (1)")
@@ -205,7 +216,11 @@ fn diff_detects_insert_update_delete() {
         match delta {
             Delta::Insert { .. } => inserts += 1,
             Delta::Update { .. } => updates += 1,
-            Delta::Delete { .. } => deletes += 1,
+            Delta::Delete { key, row } => {
+                deletes += 1;
+                assert_eq!(key, "9");
+                assert_eq!(row, json!({"id": 9}));
+            }
         }
     }
     assert_eq!((inserts, updates, deletes), (1, 1, 1));
@@ -254,9 +269,16 @@ fn encode_carries_txid_on_every_op() {
     assert!(update.contains("\"op\":\"update\""));
     assert!(update.contains("\"txid\":43"));
 
-    let delete = encode(&Delta::Delete { key: "7".to_string() }, 44);
+    let delete = encode(
+        &Delta::Delete {
+            key: "7".to_string(),
+            row: json!({"id": 7}),
+        },
+        44,
+    );
     assert!(delete.contains("\"op\":\"delete\""));
     assert!(delete.contains("\"txid\":44"));
+    assert!(delete.contains("\"row\""));
 }
 
 #[test]

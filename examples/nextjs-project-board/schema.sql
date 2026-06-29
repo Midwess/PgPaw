@@ -24,4 +24,4 @@ insert into users (id, name) values ('u1', 'Ada'), ('u2', 'Linus')
   on conflict do nothing;
 
 -- After `pgpaw init`, publish all three tables:
--- alter publication cache_server_pub add table projects, users, todos;
+-- alter publication pgpaw_pub add table projects, users, todos;

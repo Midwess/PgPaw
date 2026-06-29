@@ -1868,18 +1868,20 @@ dependencies = [
 
 [[package]]
 name = "pgpaw"
-version = "0.2.6"
+version = "0.3.0"
 dependencies = [
  "actix-cors",
  "actix-web",
  "clap",
  "jsonwebtoken",
+ "log",
  "moka",
  "pglite-rs",
  "serde",
  "serde_json",
  "sqlparser",
  "thiserror 2.0.18",
+ "time",
  "tokio",
  "tokio-postgres",
  "tokio-stream",

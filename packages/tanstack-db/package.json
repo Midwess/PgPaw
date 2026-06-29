@@ -1,6 +1,6 @@
 {
   "name": "@pgpaw/tanstack-db",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Native TanStack DB collection for PgPaw live sync (full SQL, RLS, optimistic writes confirmed by transaction id)",
   "license": "MIT",
   "type": "module",

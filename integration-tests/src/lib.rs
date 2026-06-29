@@ -6,7 +6,7 @@ use serde_json::Value;
 use tokio_postgres::{Client, NoTls};
 
 pub const JWT_SECRET: &str = "pgpaw-test-secret-please-change";
-pub const PUBLICATION: &str = "cache_server_pub";
+pub const PUBLICATION: &str = "pgpaw_pub";
 
 pub struct Upstream {
     _pg: PostgreSQL,
@@ -136,7 +136,7 @@ impl Server {
                 password: up.password.clone(),
                 database: up.database.clone(),
                 publication: PUBLICATION.to_string(),
-                slot: "cache_server_slot".to_string(),
+                slot: "pgpaw_slot".to_string(),
                 sslmode: "disable".to_string(),
             },
         };
@@ -313,7 +313,7 @@ pub async fn run_and_capture_error(
             password: up.password.clone(),
             database: up.database.clone(),
             publication: PUBLICATION.to_string(),
-            slot: "cache_server_slot".to_string(),
+            slot: "pgpaw_slot".to_string(),
             sslmode: "disable".to_string(),
         },
     };

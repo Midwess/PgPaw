@@ -7,4 +7,4 @@ create table if not exists todos (
 grant select on todos to public;
 
 -- After `pgpaw init`, make sure the table is in the publication PgPaw reads:
--- alter publication cache_server_pub add table todos;
+-- alter publication pgpaw_pub add table todos;

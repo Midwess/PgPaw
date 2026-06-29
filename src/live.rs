@@ -85,6 +85,15 @@ impl LiveHub {
         let _ = sender.send(format!("data: {first}\n\n"));
 
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        log::info!(
+            "event=live_subscription_registered id={} scope={} tables={} pk={:?} version={} snapshot_bytes={}",
+            id,
+            if principal.is_some() { "private" } else { "public" },
+            tables.join(","),
+            pk,
+            version,
+            snapshot_body.len(),
+        );
         self.subs.lock().unwrap().insert(
             id,
             Subscription {
@@ -101,6 +110,10 @@ impl LiveHub {
 
     fn reset_all(&self) {
         let mut subs = self.subs.lock().unwrap();
+        log::warn!(
+            "event=live_reset subscriptions={} reason=broadcast_lag",
+            subs.len(),
+        );
         for sub in subs.values() {
             let _ = sub.sender.send(reset());
         }
@@ -114,6 +127,7 @@ impl LiveHub {
             .iter()
             .map(|change| change_table(change).to_ascii_lowercase())
             .collect();
+        let changed_tables = changed.iter().cloned().collect::<Vec<_>>().join(",");
 
         let jobs: Vec<LiveJob> = {
             let subs = self.subs.lock().unwrap();
@@ -134,6 +148,13 @@ impl LiveHub {
                 })
                 .collect()
         };
+        log::info!(
+            "event=live_commit txid={} lsn={} changed_tables={} subscriptions_matched={}",
+            txid,
+            txn.end_lsn.0,
+            changed_tables,
+            jobs.len(),
+        );
 
         for (id, sql, pk, last, principal) in jobs {
             let fresh = match &principal {
@@ -143,12 +164,25 @@ impl LiveHub {
             .unwrap_or_else(|_| "[]".to_string());
             let next = keyed_map(&fresh, pk.as_deref());
             let deltas = diff(&last, &next);
+            log::info!(
+                "event=live_diff subscription_id={} txid={} previous_rows={} next_rows={} deltas={}",
+                id,
+                txid,
+                last.len(),
+                next.len(),
+                deltas.len(),
+            );
 
             let mut subs = self.subs.lock().unwrap();
             if let Some(sub) = subs.get_mut(&id) {
                 let mut alive = true;
                 for delta in &deltas {
                     if sub.sender.send(encode(delta, txid)).is_err() {
+                        log::warn!(
+                            "event=live_subscriber_send_failed subscription_id={} txid={}",
+                            id,
+                            txid,
+                        );
                         alive = false;
                         break;
                     }
@@ -160,10 +194,17 @@ impl LiveHub {
             }
         }
 
-        self.subs
-            .lock()
-            .unwrap()
-            .retain(|_, sub| !sub.sender.is_closed());
+        let mut subs = self.subs.lock().unwrap();
+        let before = subs.len();
+        subs.retain(|_, sub| !sub.sender.is_closed());
+        let removed = before.saturating_sub(subs.len());
+        if removed > 0 {
+            log::info!(
+                "event=live_subscribers_cleaned removed={} active={}",
+                removed,
+                subs.len(),
+            );
+        }
     }
 }
 
@@ -171,7 +212,7 @@ pub(crate) fn encode(delta: &Delta, txid: u32) -> String {
     let payload = match delta {
         Delta::Insert { key, row } => json!({"op": "insert", "key": key, "row": row, "txid": txid}),
         Delta::Update { key, row } => json!({"op": "update", "key": key, "row": row, "txid": txid}),
-        Delta::Delete { key } => json!({"op": "delete", "key": key, "txid": txid}),
+        Delta::Delete { key, row } => json!({"op": "delete", "key": key, "row": row, "txid": txid}),
     };
     format!("data: {payload}\n\n")
 }

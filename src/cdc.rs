@@ -25,15 +25,23 @@ impl CdcBridge {
         let thread_tx = tx.clone();
         let thread_stop = stop.clone();
         let handle = std::thread::Builder::new()
-            .name("cache-cdc".into())
+            .name("pgpaw-cdc".into())
             .spawn(move || {
+                log::info!("event=cdc_thread_start thread=pgpaw-cdc");
                 while let Ok(txn) = rx.recv() {
                     if thread_stop.load(Ordering::SeqCst) {
                         break;
                     }
                     versions.advance(txn.as_ref());
+                    log::info!(
+                        "event=cdc_transaction txid={} lsn={} changes={}",
+                        txn.xid,
+                        txn.end_lsn.0,
+                        txn.changes.len(),
+                    );
                     let _ = thread_tx.send(txn);
                 }
+                log::warn!("event=cdc_thread_stop thread=pgpaw-cdc");
             })
             .map_err(CacheError::Io)?;
 
@@ -50,6 +58,7 @@ impl CdcBridge {
     }
 
     pub fn stop(&self) {
+        log::info!("event=cdc_stop_requested");
         self.stop.store(true, Ordering::SeqCst);
     }
 

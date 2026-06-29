@@ -65,7 +65,7 @@ async fn main() -> Result<()> {
     BASE.set(format!("http://127.0.0.1:{http_port}")).unwrap();
     spawn_pgpaw(host.clone(), port, user.clone(), pass.clone(), http_port);
     wait_ready().await?;
-    println!("[bench] pgpaw cache server ready (replica backfilled)\n");
+    println!("[bench] PgPaw ready (replica backfilled)\n");
 
     let http = reqwest::Client::builder().build()?;
     let (mut up, _conn) = upstream(&host, port, &user, &pass).await?;
@@ -244,6 +244,11 @@ fn spawn_pgpaw(host: String, port: u16, user: String, pass: String, http_port: u
             data_dir: std::env::temp_dir().join(format!("pgpaw-bench-{}", std::process::id())),
             max_connections: 8,
             cache_size_bytes: 256 * 1024 * 1024,
+            jwt_secret: None,
+            jwt_public_key: None,
+            jwt_jwks_url: None,
+            jwt_role_claim: "role".into(),
+            cors_origin: None,
             upstream: pgpaw::UpstreamConfig {
                 host,
                 port,

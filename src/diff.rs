@@ -7,7 +7,7 @@ use serde_json::Value;
 pub enum Delta {
     Insert { key: String, row: Value },
     Update { key: String, row: Value },
-    Delete { key: String },
+    Delete { key: String, row: Value },
 }
 
 pub fn diff(prev: &HashMap<String, Value>, next: &HashMap<String, Value>) -> Vec<Delta> {
@@ -25,9 +25,12 @@ pub fn diff(prev: &HashMap<String, Value>, next: &HashMap<String, Value>) -> Vec
             Some(_) => {}
         }
     }
-    for key in prev.keys() {
+    for (key, row) in prev {
         if !next.contains_key(key) {
-            deltas.push(Delta::Delete { key: key.clone() });
+            deltas.push(Delta::Delete {
+                key: key.clone(),
+                row: row.clone(),
+            });
         }
     }
     deltas

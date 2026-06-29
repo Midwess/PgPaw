@@ -57,13 +57,28 @@ pub struct Di {
 
 impl Di {
     pub async fn init(config: ServerConfig) -> Result<(), CacheError> {
+        log::info!(
+            "event=preflight_start upstream_host={} upstream_port={} upstream_user={} upstream_database={} publication={}",
+            config.upstream.host,
+            config.upstream.port,
+            config.upstream.user,
+            config.upstream.database,
+            config.upstream.publication,
+        );
         crate::setup::preflight(&config.upstream).await?;
+        log::info!("event=preflight_complete result=ok");
 
         let options = MultiProcessOptions {
             max_connections: config.max_connections,
             ..Default::default()
         };
+        log::info!(
+            "event=replica_open_start data_dir={:?} max_connections={}",
+            config.data_dir,
+            config.max_connections,
+        );
         let db = PGlite::open_multi_process(&config.data_dir, options).await?;
+        log::info!("event=replica_open_complete result=ok");
 
         let replica_config = ReplicaConfig {
             host: config.upstream.host.clone(),
@@ -76,13 +91,34 @@ impl Di {
             sslmode: parse_sslmode(&config.upstream.sslmode),
             ..Default::default()
         };
+        log::info!(
+            "event=replication_start upstream_host={} upstream_port={} upstream_database={} publication={} slot={}",
+            config.upstream.host,
+            config.upstream.port,
+            config.upstream.database,
+            config.upstream.publication,
+            config.upstream.slot,
+        );
         let replica = Replica::start(db.clone(), replica_config).await?;
+        log::info!("event=replication_started result=ok");
 
         let (replicated, pk, full) = scan_schema(&db).await?;
+        log::info!(
+            "event=schema_scan_complete tables={} primary_key_tables={} replica_identity_full_tables={}",
+            replicated.len(),
+            pk.len(),
+            full.len(),
+        );
         let versions = VersionIndex::new(pk.clone(), full);
         let cdc = CdcBridge::start(&replica, versions.clone())?;
+        log::info!("event=cdc_bridge_started");
         let live = LiveHub::start(&cdc, db.clone(), Arc::new(pk));
+        log::info!("event=live_hub_started");
         let cache = QueryCache::new(config.cache_size_bytes);
+        log::info!(
+            "event=query_cache_configured max_bytes={}",
+            config.cache_size_bytes
+        );
         let classifier = ReadClassifier::new(replicated.clone());
         let verifier = Verifier::build(
             config.jwt_secret,
@@ -90,6 +126,10 @@ impl Di {
             config.jwt_jwks_url,
             config.jwt_role_claim,
         )?;
+        log::info!(
+            "event=auth_configured jwt_verification={}",
+            verifier.is_some()
+        );
 
         let di = Di {
             db,
@@ -116,9 +156,11 @@ impl Di {
     }
 
     pub async fn shutdown(&self) {
+        log::info!("event=replication_stop_start");
         self.replica.stop();
         self.cdc.stop();
         let _ = self.db.shutdown().await;
+        log::info!("event=replication_stop_complete");
     }
 
     pub fn db(&self) -> &PGlite {
@@ -198,12 +240,12 @@ impl Di {
         let rows = self
             .db
             .query(
-                "select c.relname, \
+                "select lower(c.relname), \
                         (c.relrowsecurity or not has_table_privilege('public', c.oid, 'SELECT'))::int \
                  from pg_class c join pg_namespace n on n.oid = c.relnamespace \
                  where c.relkind = 'r' \
                    and n.nspname not in ('pg_catalog', 'information_schema') \
-                   and c.relname = any($1)",
+                   and lower(c.relname) = any($1)",
                 &[&names],
             )
             .await?;
@@ -234,7 +276,7 @@ async fn scan_schema(
     for row in table_rows {
         let name: String = row.get(0)?;
         if name != "_pglite_replica" {
-            tables.insert(name);
+            tables.insert(name.to_ascii_lowercase());
         }
     }
 
@@ -254,7 +296,10 @@ async fn scan_schema(
     for row in pk_rows {
         let table: String = row.get(0)?;
         let column: String = row.get(1)?;
-        pk_columns.entry(table).or_default().push(column);
+        pk_columns
+            .entry(table.to_ascii_lowercase())
+            .or_default()
+            .push(column);
     }
     let pk = pk_columns
         .into_iter()
@@ -274,7 +319,7 @@ async fn scan_schema(
     let mut full = HashSet::new();
     for row in full_rows {
         let name: String = row.get(0)?;
-        full.insert(name);
+        full.insert(name.to_ascii_lowercase());
     }
 
     Ok((tables, pk, full))

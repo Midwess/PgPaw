@@ -66,13 +66,41 @@ describe("pgpawCollectionOptions sync", () => {
     expect(events).toContainEqual({ op: "write", payload: { type: "insert", value: { id: 1, v: "a" } } })
 
     live.push('data: {"op":"update","key":"1","row":{"id":1,"v":"b"},"txid":42}\n\n')
+    live.push('data: {"op":"up-to-date","txid":42}\n\n')
     await tick()
     expect(events).toContainEqual({ op: "write", payload: { type: "update", value: { id: 1, v: "b" } } })
     await expect(options.utils.awaitTxId(42)).resolves.toBeUndefined()
 
-    live.push('data: {"op":"delete","key":"1","txid":43}\n\n')
+    live.push('data: {"op":"delete","key":"1","row":{"id":1,"v":"b"},"txid":43}\n\n')
+    live.push('data: {"op":"up-to-date","txid":43}\n\n')
     await tick()
     expect(events).toContainEqual({ op: "write", payload: { type: "delete", key: "1" } })
+
+    stop()
+  })
+
+  it("collapses a same-key insert+delete in one commit into an update, not a removal", async () => {
+    const live = liveStream()
+    stubFetch(live.stream)
+    const options = pgpawCollectionOptions<{ id: number; v: string }>({
+      url: "http://pgpaw",
+      sql: "select * from a join b",
+      getKey: (row) => row.id,
+      reconnectMs: 5,
+    })
+    const { events, handlers } = driver()
+    const stop = options.sync.sync(handlers as never) as () => void
+
+    live.push('data: {"type":"snapshot","rows":[{"id":1,"v":"a"}],"version":1}\n\n')
+    await tick()
+
+    live.push('data: {"op":"insert","key":"hashB","row":{"id":1,"v":"b"},"txid":7}\n\n')
+    live.push('data: {"op":"delete","key":"hashA","row":{"id":1,"v":"a"},"txid":7}\n\n')
+    live.push('data: {"op":"up-to-date","txid":7}\n\n')
+    await tick()
+
+    expect(events).toContainEqual({ op: "write", payload: { type: "update", value: { id: 1, v: "b" } } })
+    expect(events).not.toContainEqual({ op: "write", payload: { type: "delete", key: "1" } })
 
     stop()
   })

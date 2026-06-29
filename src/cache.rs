@@ -25,7 +25,16 @@ impl QueryCache {
     }
 
     pub async fn get(&self, key: &str) -> Option<Arc<CachedResult>> {
-        self.inner.get(key).await
+        let result = self.inner.get(key).await;
+        match &result {
+            Some(value) => log::info!(
+                "event=query_cache_lookup result=hit key={} bytes={}",
+                key,
+                value.body.len(),
+            ),
+            None => log::info!("event=query_cache_lookup result=miss key={}", key),
+        }
+        result
     }
 
     pub async fn get_or_compute<F>(
@@ -37,14 +46,25 @@ impl QueryCache {
         F: Future<Output = Result<String, CacheError>>,
     {
         if let Some(hit) = self.inner.get(&key).await {
+            log::info!(
+                "event=query_cache_get_or_compute result=hit key={} bytes={}",
+                key,
+                hit.body.len(),
+            );
             return Ok(hit);
         }
+        log::info!("event=query_cache_get_or_compute result=miss key={}", key);
         let body = compute.await?;
         let result = Arc::new(CachedResult {
             etag: key.clone(),
             body,
         });
         self.inner.insert(key, result.clone()).await;
+        log::info!(
+            "event=query_cache_store key={} bytes={}",
+            result.etag,
+            result.body.len(),
+        );
         Ok(result)
     }
 }

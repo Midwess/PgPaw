@@ -108,16 +108,32 @@ fn authenticate(req: &HttpRequest) -> Result<Option<Principal>, CacheError> {
     let Some(header) = req.headers().get("Authorization") else {
         return Ok(None);
     };
+    log::info!("event=auth_header_present");
     let token = header
         .to_str()
         .ok()
         .and_then(|value| value.strip_prefix("Bearer "))
-        .ok_or_else(|| CacheError::Unauthorized("malformed Authorization header".to_string()))?;
+        .ok_or_else(|| {
+            log::warn!("event=auth_failed reason=malformed_authorization_header");
+            CacheError::Unauthorized("malformed Authorization header".to_string())
+        })?;
     match Di::instance().verifier() {
-        Some(verifier) => Ok(Some(verifier.verify(token)?)),
-        None => Err(CacheError::Unauthorized(
-            "a token was presented but JWT verification is not configured".to_string(),
-        )),
+        Some(verifier) => match verifier.verify(token) {
+            Ok(principal) => {
+                log::info!("event=auth_verified role={}", principal.role);
+                Ok(Some(principal))
+            }
+            Err(error) => {
+                log::warn!("event=auth_failed error={:?}", error.to_string());
+                Err(error)
+            }
+        },
+        None => {
+            log::warn!("event=auth_failed reason=jwt_verification_not_configured");
+            Err(CacheError::Unauthorized(
+                "a token was presented but JWT verification is not configured".to_string(),
+            ))
+        }
     }
 }
 

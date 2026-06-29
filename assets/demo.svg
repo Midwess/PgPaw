@@ -30,7 +30,7 @@
 
   <rect class="bg" width="900" height="372" rx="10"/>
 
-  <text class="ttl" x="24" y="32">PgPaw — immutable query cache + live deltas over a pglite logical replica</text>
+  <text class="ttl" x="24" y="32">PgPaw - versioned query cache + live deltas over a pglite logical replica</text>
   <text class="sub" x="24" y="52">8-second loop. A request flows left→right; an upstream write replicates back and bumps the version.</text>
 
   <!-- nodes -->
@@ -89,12 +89,12 @@
     <rect class="chip" x="0" y="0" width="240" height="30" rx="5" fill="none" stroke="#3fb950" stroke-width="1.5" opacity="0">
       <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.34;0.36;0.46;0.48" dur="8s" repeatCount="indefinite"/>
     </rect>
-    <text class="chip-txt" x="12" y="20"><tspan class="num">/q/9a4f/v=42</tspan><tspan class="chip-dim">  immutable 1y</tspan></text>
+    <text class="chip-txt" x="12" y="20"><tspan class="num">/q/9a4f/v=42</tspan><tspan class="chip-dim">  cacheable 3d</tspan></text>
   </g>
   <g transform="translate(30,196)" opacity="0">
     <animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.66;0.68;1" dur="8s" repeatCount="indefinite"/>
     <rect class="chip" x="0" y="0" width="240" height="30" rx="5"/>
-    <text class="chip-txt" x="12" y="20"><tspan class="num">/q/9a4f/v=43</tspan><tspan class="chip-dim">  new immutable URL</tspan></text>
+    <text class="chip-txt" x="12" y="20"><tspan class="num">/q/9a4f/v=43</tspan><tspan class="chip-dim">  new versioned URL</tspan></text>
   </g>
 
   <!-- moving tokens -->
@@ -179,7 +179,7 @@
   </g>
   <g transform="translate(30,308)" opacity="0">
     <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.18;0.20;0.32;0.34;1" dur="8s" repeatCount="indefinite"/>
-    <text class="mono" x="14" y="27"><tspan fill="#6e7681">step 2  </tspan><tspan class="key">303 See Other</tspan><tspan>  Location: </tspan><tspan class="num">/q/9a4f/v=42</tspan><tspan>  Cache-Control: public, max-age=31536000, immutable</tspan></text>
+    <text class="mono" x="14" y="27"><tspan fill="#6e7681">step 2  </tspan><tspan class="key">303 See Other</tspan><tspan>  Location: </tspan><tspan class="num">/q/9a4f/v=42</tspan><tspan>  Cache-Control: no-store</tspan></text>
   </g>
   <g transform="translate(30,308)" opacity="0">
     <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.34;0.36;0.48;0.50;1" dur="8s" repeatCount="indefinite"/>

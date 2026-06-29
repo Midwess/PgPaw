@@ -72,6 +72,23 @@ export function pgpawCollectionOptions<T extends Row>(config: PgpawCollectionCon
       })
       if (!response.ok) throw new Error(`PgPaw live request failed: ${response.status}`)
 
+      const pending = new Map<string, { type: "upsert"; value: T } | { type: "delete" }>()
+      const flush = (): void => {
+        if (pending.size === 0) return
+        begin()
+        for (const [key, op] of pending) {
+          if (op.type === "upsert") {
+            write({ type: seen.has(key) ? "update" : "insert", value: op.value })
+            seen.add(key)
+          } else if (seen.has(key)) {
+            write({ type: "delete", key })
+            seen.delete(key)
+          }
+        }
+        commit()
+        pending.clear()
+      }
+
       for await (const event of readSse(response)) {
         if (typeof event.txid === "number") txids.record(event.txid)
 
@@ -93,23 +110,19 @@ export function pgpawCollectionOptions<T extends Row>(config: PgpawCollectionCon
           case "insert":
           case "update": {
             const key = keyOf(event.row as T)
-            begin()
-            write({ type: seen.has(key) ? "update" : "insert", value: event.row })
-            commit()
-            seen.add(key)
+            pending.set(key, { type: "upsert", value: event.row as T })
             break
           }
           case "delete": {
-            const key = String(event.key)
-            if (seen.has(key)) {
-              begin()
-              write({ type: "delete", key })
-              commit()
-              seen.delete(key)
-            }
+            const key = event.row !== undefined ? keyOf(event.row as T) : String(event.key)
+            if (pending.get(key)?.type !== "upsert") pending.set(key, { type: "delete" })
             break
           }
+          case "up-to-date":
+            flush()
+            break
           case "reset":
+            pending.clear()
             seen.clear()
             begin()
             truncate()
