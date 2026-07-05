@@ -88,6 +88,33 @@ describe("collectionOptionsFromSource", () => {
     stop()
   })
 
+  it("lets a row-less delete win over an earlier upsert in the same batch", async () => {
+    const { source } = queueSource([
+      [
+        { kind: "snapshot", rows: [{ id: "t1" }] },
+        { kind: "change", op: "update", row: { id: "t1", done: true }, key: "t1", txid: 7 },
+        { kind: "change", op: "delete", key: "t1", txid: 8 },
+        { kind: "up-to-date" },
+      ],
+    ])
+    const options = collectionOptionsFromSource<Row>({
+      getKey: (row) => row.id,
+      source,
+      rowUpdateMode: "partial",
+      reconnectMs: 5,
+    })
+    const { events, handlers } = driver()
+    const stop = options.sync.sync(handlers as never) as () => void
+    await tick()
+
+    expect(events).toContainEqual({ op: "write", payload: { type: "delete", key: "t1" } })
+    expect(events).not.toContainEqual({
+      op: "write",
+      payload: { type: "update", value: { id: "t1", done: true } },
+    })
+    stop()
+  })
+
   it("awaits a returned txid before resolving a write handler", async () => {
     const { source } = queueSource([
       [

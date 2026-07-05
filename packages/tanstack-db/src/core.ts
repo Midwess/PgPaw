@@ -113,7 +113,11 @@ export function collectionOptionsFromSource<T extends Row>(config: DriverCoreCon
             break
           }
           case "delete": {
-            const key = frame.row !== undefined ? keyOf(frame.row) : String(frame.key)
+            if (frame.row === undefined) {
+              pending.set(String(frame.key), { type: "delete" })
+              break
+            }
+            const key = keyOf(frame.row)
             if (pending.get(key)?.type !== "upsert") pending.set(key, { type: "delete" })
             break
           }
