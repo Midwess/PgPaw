@@ -1,13 +1,18 @@
-const low32 = (txid: number): number => txid >>> 0
+const low32 = (txid: number): string => String(txid >>> 0)
 
 const MAX_SEEN = 4096
 
 export class TxidTracker {
-  private readonly seen = new Set<number>()
+  private readonly normalize: (txid: number) => string
+  private readonly seen = new Set<string>()
   private readonly waiters = new Set<() => void>()
 
+  constructor(normalize: (txid: number) => string = low32) {
+    this.normalize = normalize
+  }
+
   record(txid: number): void {
-    this.seen.add(low32(txid))
+    this.seen.add(this.normalize(txid))
     while (this.seen.size > MAX_SEEN) {
       const oldest = this.seen.values().next().value
       if (oldest === undefined) break
@@ -17,11 +22,11 @@ export class TxidTracker {
   }
 
   has(txid: number): boolean {
-    return this.seen.has(low32(txid))
+    return this.seen.has(this.normalize(txid))
   }
 
   awaitTxId(txid: number, timeoutMs = 30000): Promise<void> {
-    const key = low32(txid)
+    const key = this.normalize(txid)
     if (this.seen.has(key)) return Promise.resolve()
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {

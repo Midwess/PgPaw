@@ -1,6 +1,6 @@
 {
   "name": "@pgpaw/tanstack-db",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Native TanStack DB collection for PgPaw live sync (full SQL, RLS, optimistic writes confirmed by transaction id)",
   "license": "MIT",
   "type": "module",
@@ -12,6 +12,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./core": {
+      "types": "./dist/core.d.ts",
+      "import": "./dist/core.js",
+      "require": "./dist/core.cjs"
     }
   },
   "files": [
