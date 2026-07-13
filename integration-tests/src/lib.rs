@@ -250,7 +250,6 @@ impl Server {
 
     pub async fn wait_rows(&self, sql: &str, token: Option<&str>, want: usize) {
         let deadline = Instant::now() + Duration::from_secs(30);
-        let mut last = String::new();
         loop {
             let resp = self.query(sql, token).await;
             let status = resp.status().as_u16();
@@ -265,11 +264,11 @@ impl Server {
                 },
                 _ => None,
             };
-            match got {
+            let last = match got {
                 Some(n) if n == want => return,
-                Some(n) => last = format!("{n} rows"),
-                None => last = format!("status {status}"),
-            }
+                Some(n) => format!("{n} rows"),
+                None => format!("status {status}"),
+            };
             if Instant::now() > deadline {
                 panic!("replication did not yield {want} rows for `{sql}` (last saw {last})");
             }

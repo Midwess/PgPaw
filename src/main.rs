@@ -27,7 +27,7 @@ enum Command {
     /// Prepare upstream Postgres for PgPaw replication
     Init(InitOptions),
     /// Run the PgPaw HTTP query and realtime server (default)
-    Serve(ServeOptions),
+    Serve(Box<ServeOptions>),
     /// Run PgPaw as an embedded writable Postgres primary
     Primary(PrimaryOptions),
 }

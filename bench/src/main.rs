@@ -32,12 +32,14 @@ type EvStream = Pin<Box<dyn Stream<Item = reqwest::Result<bytes::Bytes>> + Send>
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let mut settings = Settings::default();
-    settings.configuration = HashMap::from([
-        ("wal_level".into(), "logical".into()),
-        ("max_wal_senders".into(), "10".into()),
-        ("max_replication_slots".into(), "10".into()),
-    ]);
+    let settings = Settings {
+        configuration: HashMap::from([
+            ("wal_level".into(), "logical".into()),
+            ("max_wal_senders".into(), "10".into()),
+            ("max_replication_slots".into(), "10".into()),
+        ]),
+        ..Default::default()
+    };
     let mut pg = PostgreSQL::new(settings);
     println!("[bench] downloading + starting embedded postgres ...");
     pg.setup().await?;
