@@ -5,6 +5,10 @@ PgPaw is a read-only HTTP and realtime layer for Postgres. It keeps a local
 database, runs plain PostgreSQL `SELECT` queries against that replica, and
 returns either cacheable JSON snapshots or live Server-Sent Events.
 
+With the `az-wire` feature, the same read-only operations are also available through a native
+az-wire host. PgPaw can separately run as an embedded writable PostgreSQL primary for a Rust host;
+embedded mode does not use logical replication.
+
 Use PgPaw when you want:
 
 - read-only SQL over HTTP without sending every read to upstream Postgres;
@@ -41,8 +45,8 @@ Install from Cargo:
 cargo install pgpaw
 ```
 
-Or install the npm package, which downloads the native binary when a prebuilt
-artifact is available:
+When a supported prebuilt artifact is published, you can instead install the optional npm wrapper,
+which downloads the native binary during installation:
 
 ```bash
 npm install -g pgpaw
@@ -236,6 +240,37 @@ Use explicit subcommands in scripts because they make intent clearer:
 ```bash
 pgpaw serve --pg-database myapp --port 8080
 ```
+
+### Native az-wire
+
+Build PgPaw with the `az-wire` feature to add an independent native az-wire listener:
+
+```bash
+cargo run --features az-wire -- serve \
+  --host 127.0.0.1 \
+  --port 8080 \
+  --az-wire-host 127.0.0.1 \
+  --az-wire-port 8788 \
+  --az-wire-node pgpaw \
+  --pg-database myapp
+```
+
+`--az-wire-port` is optional and has no default. Without it, serve remains HTTP-only. When set,
+Actix HTTP and native az-wire bind independent listeners over shared PgPaw state; az-wire traffic
+never passes through Actix. Startup reports readiness only after both listeners bind, and failure of
+either listener rolls back startup.
+
+The native subjects are `pgpaw.read`, `pgpaw.cursor`, and `pgpaw.live`. They preserve the HTTP
+read-only SQL, authorization, cache, cursor, and live-query semantics. Mutating SQL is rejected.
+
+### Embedded primary
+
+Rust hosts can call `open_primary(&PrimaryConfig)` to start one writable embedded PostgreSQL primary,
+then use `PrimaryHandle::dsn()` to create a direct PostgreSQL pool. With the `az-wire` feature,
+`PrimaryHandle::attach_child(node, topology)` can attach read-only and realtime services as a
+listenerless child of an existing az-wire node. The topology must contain a parent link and no host
+listener. The direct pool remains the read/write database path; the child is additive and creates no
+replica or second database.
 
 ## HTTP API
 
