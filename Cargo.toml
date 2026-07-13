@@ -9,6 +9,7 @@ description = "Read-only Postgres cache + realtime server over an embedded pglit
 
 [workspace]
 members = ["bench", "integration-tests"]
+exclude = ["az-wire"]
 
 [lib]
 name = "pgpaw"
@@ -20,6 +21,7 @@ required-features = ["server"]
 
 [features]
 default = ["server"]
+az-wire = ["server", "dep:az-wire", "dep:futures-util"]
 server = [
     "dep:actix-web",
     "dep:actix-cors",
@@ -53,6 +55,8 @@ jsonwebtoken = { version = "9", optional = true }
 log = "0.4"
 time = { version = "0.3", features = ["formatting"], optional = true }
 tempfile = "3"
+az-wire = { path = "az-wire/crates/az-wire", optional = true }
+futures-util = { version = "0.3", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

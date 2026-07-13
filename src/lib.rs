@@ -17,6 +17,8 @@ mod http;
 mod live;
 #[cfg(feature = "server")]
 mod operations;
+#[cfg(feature = "az-wire")]
+mod az_wire;
 mod primary;
 #[cfg(feature = "server")]
 mod rows;
@@ -35,6 +37,8 @@ mod tests;
 pub use di::{Di, ServerConfig, UpstreamConfig};
 #[cfg(feature = "server")]
 pub use operations::{PreparedRead, ReadOperations};
+#[cfg(feature = "az-wire")]
+pub use az_wire::register_az_wire;
 pub use error::CacheError;
 pub use primary::{open_primary, run_primary, PrimaryConfig, PrimaryHandle};
 pub use shadow::{open_shadow, ShadowHandle};

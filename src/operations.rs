@@ -101,6 +101,13 @@ impl ReadOperations {
         self.cache.get(&format!("{hash}:{version}")).await
     }
 
+    pub fn materialize_version(&self, read: &PreparedRead) -> (String, u64, String) {
+        let hash = format!("{:x}", read.query.fingerprint);
+        let version = self.versions.version_of(&read.query.tables, &read.query.eq_filters).0;
+        let key = format!("{hash}:{version}");
+        (hash, version, key)
+    }
+
     pub async fn subscribe(&self, read: PreparedRead) -> Result<LiveSubscription, CacheError> {
         let version = self.versions.version_of(&read.query.tables, &read.query.eq_filters).0;
         match read.principal {
