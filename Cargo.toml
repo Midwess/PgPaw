@@ -59,7 +59,9 @@ az-wire = { path = "az-wire/crates/az-wire", optional = true }
 futures-util = { version = "0.3", optional = true }
 
 [dev-dependencies]
+az-wire-client = { path = "az-wire/crates/az-wire-client" }
 az-wire-transport = { path = "az-wire/crates/az-wire-transport" }
+futures-util = "0.3"
 libc = "0.2"
 serial_test = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

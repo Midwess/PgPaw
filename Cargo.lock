@@ -2430,6 +2430,7 @@ dependencies = [
  "actix-cors",
  "actix-web",
  "az-wire",
+ "az-wire-client",
  "az-wire-transport",
  "clap",
  "futures-util",
