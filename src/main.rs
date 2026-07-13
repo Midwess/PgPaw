@@ -44,6 +44,14 @@ struct ServeOptions {
     /// Port for the native az-wire host
     #[arg(long, env = "PGPAW_AZ_WIRE_PORT")]
     az_wire_port: Option<u16>,
+    #[cfg(feature = "az-wire")]
+    /// Host for the native az-wire listener
+    #[arg(long, env = "PGPAW_AZ_WIRE_HOST", default_value = "127.0.0.1")]
+    az_wire_host: std::net::IpAddr,
+    #[cfg(feature = "az-wire")]
+    /// Node identity for native az-wire
+    #[arg(long, env = "PGPAW_AZ_WIRE_NODE", default_value = "pgpaw")]
+    az_wire_node: String,
     /// Data directory for the local pglite replica
     #[arg(long, env = "PGPAW_DATA_DIR", default_value = "./cache-data")]
     data_dir: PathBuf,
@@ -309,5 +317,38 @@ mod tests {
             panic!("expected serve command");
         };
         assert_eq!(explicit.az_wire_port, Some(9001));
+    }
+
+    #[test]
+    fn az_wire_host_and_node_parse_with_minimal_defaults() {
+        let defaults = Cli::try_parse_from(["pgpaw"]).unwrap().serve;
+        assert_eq!(defaults.az_wire_host.to_string(), "127.0.0.1");
+        assert_eq!(defaults.az_wire_node, "pgpaw");
+
+        let configured = Cli::try_parse_from([
+            "pgpaw",
+            "--az-wire-port",
+            "9000",
+            "--az-wire-host",
+            "0.0.0.0",
+            "--az-wire-node",
+            "cache",
+        ])
+        .unwrap()
+        .serve;
+        assert_eq!(configured.az_wire_host.to_string(), "0.0.0.0");
+        assert_eq!(configured.az_wire_node, "cache");
+    }
+
+    #[test]
+    fn az_wire_host_requires_an_ip_literal() {
+        assert!(Cli::try_parse_from([
+            "pgpaw",
+            "--az-wire-port",
+            "9000",
+            "--az-wire-host",
+            "localhost",
+        ])
+        .is_err());
     }
 }
