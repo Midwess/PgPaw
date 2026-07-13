@@ -129,12 +129,22 @@ fn handler_error(error: CacheError) -> HandlerError {
 
 #[cfg(test)]
 mod tests {
-    use super::decode_event;
+    use super::{decode_event, handler_error};
+    use az_wire::ErrorCode;
+    use crate::error::CacheError;
     use crate::wire::LiveEvent;
 
     #[test]
     fn decodes_sse_delta_as_typed_event() {
         let event = decode_event("data: {\"op\":\"insert\",\"key\":\"1\",\"row\":{\"id\":1},\"txid\":7}\n\n").unwrap();
         assert!(matches!(event, LiveEvent::Insert { txid: 7, .. }));
+    }
+
+    #[test]
+    fn shared_errors_keep_wire_semantics() {
+        assert_eq!(handler_error(CacheError::Rejected("write".into())).code, ErrorCode::InvalidInput);
+        assert_eq!(handler_error(CacheError::Unauthorized("token".into())).code, ErrorCode::Unauthorized);
+        assert_eq!(handler_error(CacheError::Forbidden("rls".into())).code, ErrorCode::Unauthorized);
+        assert_eq!(handler_error(CacheError::Halted("replica".into())).code, ErrorCode::Busy);
     }
 }

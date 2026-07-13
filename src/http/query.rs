@@ -146,13 +146,7 @@ pub async fn cursor(path: web::Path<(String, String)>) -> HttpResponse {
 }
 
 pub(crate) fn error_response(error: CacheError) -> HttpResponse {
-    let code = match &error {
-        CacheError::Rejected(_) | CacheError::Parse(_) => StatusCode::BAD_REQUEST,
-        CacheError::Halted(_) => StatusCode::SERVICE_UNAVAILABLE,
-        CacheError::Unauthorized(_) => StatusCode::UNAUTHORIZED,
-        CacheError::Forbidden(_) => StatusCode::FORBIDDEN,
-        _ => StatusCode::INTERNAL_SERVER_ERROR,
-    };
+    let code = error_status(&error);
     match code {
         StatusCode::INTERNAL_SERVER_ERROR | StatusCode::SERVICE_UNAVAILABLE => log::error!(
             "event=http_error status={} error_name={} error={:?}",
@@ -172,6 +166,16 @@ pub(crate) fn error_response(error: CacheError) -> HttpResponse {
         .body(error.envelope())
 }
 
+pub(crate) fn error_status(error: &CacheError) -> StatusCode {
+    match error {
+        CacheError::Rejected(_) | CacheError::Parse(_) => StatusCode::BAD_REQUEST,
+        CacheError::Halted(_) => StatusCode::SERVICE_UNAVAILABLE,
+        CacheError::Unauthorized(_) => StatusCode::UNAUTHORIZED,
+        CacheError::Forbidden(_) => StatusCode::FORBIDDEN,
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
 fn tables_csv(tables: &[String]) -> String {
     if tables.is_empty() {
         "-".to_string()
@@ -182,6 +186,8 @@ fn tables_csv(tables: &[String]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use actix_web::http::StatusCode;
+    use super::error_status;
     use crate::operations::map_db_denial;
     use crate::error::CacheError;
 
@@ -218,5 +224,13 @@ mod tests {
             map_db_denial(CacheError::Cache("x".to_string())),
             CacheError::Cache(_)
         ));
+    }
+
+    #[test]
+    fn shared_errors_keep_http_semantics() {
+        assert_eq!(error_status(&CacheError::Rejected("write".into())), StatusCode::BAD_REQUEST);
+        assert_eq!(error_status(&CacheError::Unauthorized("token".into())), StatusCode::UNAUTHORIZED);
+        assert_eq!(error_status(&CacheError::Forbidden("rls".into())), StatusCode::FORBIDDEN);
+        assert_eq!(error_status(&CacheError::Halted("replica".into())), StatusCode::SERVICE_UNAVAILABLE);
     }
 }
