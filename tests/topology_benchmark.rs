@@ -1,5 +1,6 @@
 #![cfg(all(feature = "az-wire", unix))]
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use az_wire::{handler, Handler, HandlerError, Node, ParentLink, Reply, Request, TopologyConfig};
@@ -102,7 +103,7 @@ fn caller(name: &str) -> std::sync::Arc<Node> {
         .unwrap()
 }
 
-async fn measure(node: &Node) -> Measurement {
+async fn measure(node: &Arc<Node>) -> Measurement {
     for _ in 0..WARMUP {
         request(node).await;
     }
@@ -130,7 +131,7 @@ async fn measure(node: &Node) -> Measurement {
     }
 }
 
-async fn request(node: &Node) {
+async fn request(node: &Arc<Node>) {
     let payload = serde_json::to_value(ReadRequest {
         sql: "benchmark-read".into(),
     })
