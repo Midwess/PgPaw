@@ -4,9 +4,12 @@ use std::sync::{Arc, Mutex};
 use pglite::{PGlite, Replica};
 
 use crate::auth::{Principal, Verifier};
+use crate::cache::{CachedResult, QueryCache};
 use crate::classify::{CacheableQuery, ReadClassifier};
 use crate::error::CacheError;
 use crate::rows;
+use crate::live::{LiveHub, LiveSubscription};
+use crate::version::VersionIndex;
 
 pub struct ReadOperations {
     db: PGlite,
@@ -14,6 +17,9 @@ pub struct ReadOperations {
     classifier: ReadClassifier,
     verifier: Option<Verifier>,
     security_cache: Arc<Mutex<(u64, HashMap<String, bool>)>>,
+    cache: QueryCache,
+    versions: VersionIndex,
+    live: LiveHub,
 }
 
 pub struct PreparedRead {
@@ -28,6 +34,9 @@ impl ReadOperations {
         replica: Replica,
         replicated: HashSet<String>,
         verifier: Option<Verifier>,
+        cache: QueryCache,
+        versions: VersionIndex,
+        live: LiveHub,
     ) -> ReadOperations {
         ReadOperations {
             db,
@@ -35,6 +44,9 @@ impl ReadOperations {
             classifier: ReadClassifier::new(replicated),
             verifier,
             security_cache: Arc::new(Mutex::new((0, HashMap::new()))),
+            cache,
+            versions,
+            live,
         }
     }
 
@@ -73,6 +85,34 @@ impl ReadOperations {
 
     pub async fn execute_public(&self, read: &PreparedRead) -> Result<String, CacheError> {
         rows::query_json(&self.db, &read.query.sql).await
+    }
+
+    pub async fn materialize(&self, read: &PreparedRead) -> Result<(String, u64, Arc<CachedResult>), CacheError> {
+        let hash = format!("{:x}", read.query.fingerprint);
+        let version = self.versions.version_of(&read.query.tables, &read.query.eq_filters).0;
+        let key = format!("{hash}:{version}");
+        let sql = read.query.sql.clone();
+        let db = self.db.clone();
+        let snapshot = self.cache.get_or_compute(key, async move { rows::query_json(&db, &sql).await }).await?;
+        Ok((hash, version, snapshot))
+    }
+
+    pub async fn cursor(&self, hash: &str, version: &str) -> Option<Arc<CachedResult>> {
+        self.cache.get(&format!("{hash}:{version}")).await
+    }
+
+    pub async fn subscribe(&self, read: PreparedRead) -> Result<LiveSubscription, CacheError> {
+        let version = self.versions.version_of(&read.query.tables, &read.query.eq_filters).0;
+        match read.principal {
+            Some(principal) => {
+                let body = rows::query_json_as(&self.db, &principal.role, &principal.claims_json, &read.query.sql).await.map_err(map_db_denial)?;
+                Ok(self.live.subscribe(read.query.sql, read.query.tables, String::new(), version, &body, Some(principal)))
+            }
+            None => {
+                let (hash, version, snapshot) = self.materialize(&read).await?;
+                Ok(self.live.subscribe(read.query.sql, read.query.tables, hash, version, &snapshot.body, None))
+            }
+        }
     }
 
     async fn is_private(&self, tables: &[String]) -> Result<bool, CacheError> {

@@ -6,6 +6,7 @@ use pglite::{CommittedTransaction, PGlite, RowChange};
 use serde_json::{json, Value};
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::mpsc;
+use tokio_stream::Stream;
 
 use crate::auth::Principal;
 use crate::cdc::CdcBridge;
@@ -35,6 +36,29 @@ pub struct LiveHub {
     next_id: Arc<AtomicU64>,
     db: PGlite,
     pk: Arc<HashMap<String, String>>,
+}
+
+pub struct LiveSubscription {
+    id: u64,
+    subs: Arc<Mutex<HashMap<u64, Subscription>>>,
+    receiver: mpsc::UnboundedReceiver<String>,
+}
+
+impl Stream for LiveSubscription {
+    type Item = String;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        self.receiver.poll_recv(cx)
+    }
+}
+
+impl Drop for LiveSubscription {
+    fn drop(&mut self) {
+        self.subs.lock().unwrap().remove(&self.id);
+    }
 }
 
 impl LiveHub {
@@ -67,7 +91,7 @@ impl LiveHub {
         version: u64,
         snapshot_body: &str,
         principal: Option<Principal>,
-    ) -> mpsc::UnboundedReceiver<String> {
+    ) -> LiveSubscription {
         let (sender, receiver) = mpsc::unbounded_channel();
         let pk = if tables.len() == 1 {
             self.pk.get(&tables[0].to_ascii_lowercase()).cloned()
@@ -105,7 +129,11 @@ impl LiveHub {
                 principal,
             },
         );
-        receiver
+        LiveSubscription {
+            id,
+            subs: self.subs.clone(),
+            receiver,
+        }
     }
 
     fn reset_all(&self) {
@@ -231,5 +259,37 @@ fn change_table(change: &RowChange) -> &str {
         | RowChange::Update { table, .. }
         | RowChange::Delete { table, .. }
         | RowChange::Truncate { table, .. } => table,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{LiveSubscription, Subscription};
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+    use tokio::sync::mpsc;
+
+    #[test]
+    fn dropping_subscription_removes_it_immediately() {
+        let subs: Arc<Mutex<HashMap<u64, Subscription>>> = Arc::new(Mutex::new(HashMap::new()));
+        let (sender, receiver) = mpsc::unbounded_channel();
+        subs.lock().unwrap().insert(
+            7,
+            Subscription {
+                tables: Vec::new(),
+                pk: None,
+                sql: String::new(),
+                sender,
+                last: HashMap::new(),
+                principal: None,
+            },
+        );
+        let subscription = LiveSubscription {
+            id: 7,
+            subs: subs.clone(),
+            receiver,
+        };
+        drop(subscription);
+        assert!(subs.lock().unwrap().is_empty());
     }
 }

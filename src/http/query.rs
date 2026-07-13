@@ -1,17 +1,12 @@
-use std::sync::Arc;
-
 use actix_web::http::StatusCode;
 use actix_web::{web, HttpResponse};
 use serde::Deserialize;
-use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_stream::StreamExt;
 
 use crate::auth::{AuthOutcome, Principal};
-use crate::cache::CachedResult;
 use crate::classify::CacheableQuery;
 use crate::di::Di;
 use crate::error::CacheError;
-use crate::rows;
 
 #[derive(Deserialize)]
 pub struct QueryParams {
@@ -62,7 +57,7 @@ pub async fn query(
     if live {
         return live_query(di, read.query, None).await;
     }
-    match materialize(di, &query).await {
+    match di.operations().materialize(&read).await {
         Ok((hash, version, snapshot)) => {
             log::info!(
                 "event=query_snapshot scope=public fingerprint={} tables={} version={} cursor=/q/{}/{} response=redirect snapshot_bytes={}",
@@ -113,53 +108,12 @@ async fn live_query(
     query: CacheableQuery,
     principal: Option<Principal>,
 ) -> HttpResponse {
-    let fingerprint = format!("{:x}", query.fingerprint);
-    let tables = tables_csv(&query.tables);
-    let receiver = match principal {
-        Some(p) => {
-            let body = match rows::query_json_as(di.db(), &p.role, &p.claims_json, &query.sql).await
-            {
-                Ok(body) => body,
-                Err(error) => return error_response(crate::operations::map_db_denial(error)),
-            };
-            let version = di.versions().version_of(&query.tables, &query.eq_filters).0;
-            log::info!(
-                "event=live_subscribe scope=private fingerprint={} tables={} version={} role={} snapshot_bytes={}",
-                fingerprint,
-                tables,
-                version,
-                p.role,
-                body.len(),
-            );
-            di.live().subscribe(
-                query.sql,
-                query.tables,
-                String::new(),
-                version,
-                &body,
-                Some(p),
-            )
-        }
-        None => {
-            let (hash, version, snapshot) = match materialize(di, &query).await {
-                Ok(parts) => parts,
-                Err(error) => return error_response(error),
-            };
-            log::info!(
-                "event=live_subscribe scope=public fingerprint={} tables={} version={} cursor=/q/{}/{} snapshot_bytes={}",
-                fingerprint,
-                tables,
-                version,
-                hash,
-                version,
-                snapshot.body.len(),
-            );
-            di.live()
-                .subscribe(query.sql, query.tables, hash, version, &snapshot.body, None)
-        }
+    let read = crate::operations::PreparedRead { query, principal, private: false };
+    let subscription = match di.operations().subscribe(read).await {
+        Ok(subscription) => subscription,
+        Err(error) => return error_response(error),
     };
-    let stream = UnboundedReceiverStream::new(receiver)
-        .map(|event| Ok::<_, actix_web::Error>(web::Bytes::from(event)));
+    let stream = subscription.map(|event| Ok::<_, actix_web::Error>(web::Bytes::from(event)));
     HttpResponse::Ok()
         .insert_header(("Cache-Control", "no-store"))
         .content_type("text/event-stream")
@@ -168,8 +122,7 @@ async fn live_query(
 
 pub async fn cursor(path: web::Path<(String, String)>) -> HttpResponse {
     let (hash, version) = path.into_inner();
-    let key = format!("{hash}:{version}");
-    match Di::instance().cache().get(&key).await {
+    match Di::instance().operations().cursor(&hash, &version).await {
         Some(result) => {
             log::info!(
                 "event=cursor_hit hash={} version={} bytes={}",
@@ -190,23 +143,6 @@ pub async fn cursor(path: web::Path<(String, String)>) -> HttpResponse {
                 .body("{\"name\":\"NotFound\",\"message\":\"unknown cursor\"}")
         }
     }
-}
-
-async fn materialize(
-    di: &'static Di,
-    query: &CacheableQuery,
-) -> Result<(String, u64, Arc<CachedResult>), CacheError> {
-    let hash = format!("{:x}", query.fingerprint);
-    let version = di.versions().version_of(&query.tables, &query.eq_filters).0;
-    let key = format!("{hash}:{version}");
-    let snapshot_sql = query.sql.clone();
-    let snapshot = di
-        .cache()
-        .get_or_compute(key, async move {
-            rows::query_json(di.db(), &snapshot_sql).await
-        })
-        .await?;
-    Ok((hash, version, snapshot))
 }
 
 pub(crate) fn error_response(error: CacheError) -> HttpResponse {
