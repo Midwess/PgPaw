@@ -66,27 +66,41 @@ pub async fn run(config: ServerConfig) -> Result<(), CacheError> {
         config.cors_origin,
     );
     Di::init(config).await?;
-    log::info!(
-        "event=server_ready bind_addr={} health_path=/healthz query_path=/query",
-        Di::instance().bind_addr()
-    );
-    let server = http::server::bind()?;
+    let server = match http::server::bind() {
+        Ok(server) => server,
+        Err(error) => {
+            Di::instance().shutdown().await;
+            return Err(error);
+        }
+    };
     #[cfg(feature = "az-wire")]
     let mut topology = match az_wire {
         Some((address, node)) => {
             let builder = ::az_wire::NodeBuilder::new(&node)
                 .insecure_accept_declared_peer_identities();
-            let node = register_az_wire(builder, Di::instance().operations().clone())
-                .build()
-                .map_err(|error| CacheError::Config(error.to_string()))?;
-            Some(
-                node.start_topology(::az_wire::TopologyConfig::host(::az_wire::HostConfig::new(address)))
+            let started = match register_az_wire(builder, Di::instance().operations().clone()).build()
+            {
+                Ok(node) => node
+                    .start_topology(::az_wire::TopologyConfig::host(::az_wire::HostConfig::new(address)))
                     .await
-                    .map_err(|error| CacheError::Config(error.to_string()))?,
-            )
+                    .map_err(|error| CacheError::Config(error.to_string())),
+                Err(error) => Err(CacheError::Config(error.to_string())),
+            };
+            match started {
+                Ok(topology) => Some(topology),
+                Err(error) => {
+                    drop(server);
+                    Di::instance().shutdown().await;
+                    return Err(error);
+                }
+            }
         }
         None => None,
     };
+    log::info!(
+        "event=server_ready bind_addr={} health_path=/healthz query_path=/query",
+        Di::instance().bind_addr()
+    );
     #[cfg(feature = "az-wire")]
     let result = match &mut topology {
         Some(topology) => tokio::select! {
