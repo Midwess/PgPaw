@@ -15,6 +15,8 @@ mod error;
 mod http;
 #[cfg(feature = "server")]
 mod live;
+#[cfg(feature = "server")]
+mod operations;
 mod primary;
 #[cfg(feature = "server")]
 mod rows;
@@ -29,6 +31,8 @@ mod tests;
 
 #[cfg(feature = "server")]
 pub use di::{Di, ServerConfig, UpstreamConfig};
+#[cfg(feature = "server")]
+pub use operations::{PreparedRead, ReadOperations};
 pub use error::CacheError;
 pub use primary::{open_primary, run_primary, PrimaryConfig, PrimaryHandle};
 pub use shadow::{open_shadow, ShadowHandle};

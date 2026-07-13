@@ -29,36 +29,20 @@ pub async fn query(
     auth: AuthOutcome,
 ) -> HttpResponse {
     let di = Di::instance();
-    if di.replica().is_halted() {
-        return error_response(CacheError::Halted(
-            di.replica()
-                .halt_reason()
-                .unwrap_or_else(|| "unknown".to_string()),
-        ));
-    }
-
     let principal = match auth.0 {
         Ok(principal) => principal,
         Err(error) => return error_response(error),
     };
 
-    let query = match di.classifier().classify(body.sql.as_str()) {
-        Ok(query) => query,
+    let read = match di.operations().prepare(body.sql.as_str(), principal.clone()).await {
+        Ok(read) => read,
         Err(error) => return error_response(error),
     };
+    let query = &read.query;
     let fingerprint = format!("{:x}", query.fingerprint);
     let tables = tables_csv(&query.tables);
 
-    if query.tables.len() > 1 {
-        if let Err(error) = rows::ensure_unique_columns(di.db(), &query.sql).await {
-            return error_response(error);
-        }
-    }
-
-    let private = match di.is_private(&query.tables).await {
-        Ok(private) => private,
-        Err(error) => return error_response(error),
-    };
+    let private = read.private;
     let live = params.live.unwrap_or(false);
     log::info!(
         "event=query_classified fingerprint={} tables={} live={} scope={}",
@@ -69,19 +53,14 @@ pub async fn query(
     );
 
     if private {
-        let Some(principal) = principal else {
-            return error_response(CacheError::Unauthorized(
-                "this query is access-controlled; a bearer token is required".to_string(),
-            ));
-        };
         if live {
-            return live_query(di, query, Some(principal)).await;
+            return live_query(di, read.query, read.principal).await;
         }
-        return private_response(di, &query, &principal, &fingerprint, &tables).await;
+        return private_response(di, &read, &fingerprint, &tables).await;
     }
 
     if live {
-        return live_query(di, query, None).await;
+        return live_query(di, read.query, None).await;
     }
     match materialize(di, &query).await {
         Ok((hash, version, snapshot)) => {
@@ -105,20 +84,19 @@ pub async fn query(
 
 async fn private_response(
     di: &Di,
-    query: &CacheableQuery,
-    principal: &Principal,
+    read: &crate::operations::PreparedRead,
     fingerprint: &str,
     tables: &str,
 ) -> HttpResponse {
-    match rows::query_json_as(di.db(), &principal.role, &principal.claims_json, &query.sql).await {
+    match di.operations().execute_private(read).await {
         Ok(body) => {
-            let version = di.versions().version_of(&query.tables, &query.eq_filters).0;
+            let version = di.versions().version_of(&read.query.tables, &read.query.eq_filters).0;
             log::info!(
                 "event=query_snapshot scope=private fingerprint={} tables={} version={} role={} response=inline snapshot_bytes={}",
                 fingerprint,
                 tables,
                 version,
-                principal.role,
+                read.principal.as_ref().unwrap().role,
                 body.len(),
             );
             HttpResponse::Ok()
@@ -126,17 +104,8 @@ async fn private_response(
                 .content_type("application/json")
                 .body(body)
         }
-        Err(error) => error_response(map_db_denial(error)),
+        Err(error) => error_response(crate::operations::map_db_denial(error)),
     }
-}
-
-fn map_db_denial(error: CacheError) -> CacheError {
-    if let CacheError::Pglite(pglite::Error::Database { sqlstate, .. }) = &error {
-        if matches!(sqlstate.as_str(), "42501" | "42704" | "28000") {
-            return CacheError::Forbidden(error.to_string());
-        }
-    }
-    error
 }
 
 async fn live_query(
@@ -151,7 +120,7 @@ async fn live_query(
             let body = match rows::query_json_as(di.db(), &p.role, &p.claims_json, &query.sql).await
             {
                 Ok(body) => body,
-                Err(error) => return error_response(map_db_denial(error)),
+                Err(error) => return error_response(crate::operations::map_db_denial(error)),
             };
             let version = di.versions().version_of(&query.tables, &query.eq_filters).0;
             log::info!(
@@ -277,7 +246,7 @@ fn tables_csv(tables: &[String]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::map_db_denial;
+    use crate::operations::map_db_denial;
     use crate::error::CacheError;
 
     fn db_error(sqlstate: &str) -> CacheError {

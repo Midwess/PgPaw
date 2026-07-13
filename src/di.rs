@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use pglite::{MultiProcessOptions, PGlite, Replica, ReplicaConfig, SslMode};
 use tokio::sync::OnceCell;
@@ -8,9 +8,9 @@ use tokio::sync::OnceCell;
 use crate::auth::Verifier;
 use crate::cache::QueryCache;
 use crate::cdc::CdcBridge;
-use crate::classify::ReadClassifier;
 use crate::error::CacheError;
 use crate::live::LiveHub;
+use crate::operations::ReadOperations;
 use crate::version::VersionIndex;
 
 static INSTANCE: OnceCell<Di> = OnceCell::const_new();
@@ -44,13 +44,11 @@ pub struct Di {
     replica: Replica,
     versions: VersionIndex,
     cache: QueryCache,
-    classifier: ReadClassifier,
+    operations: ReadOperations,
     live: LiveHub,
     tables: HashSet<String>,
     bind_addr: String,
     cors_origin: Option<String>,
-    verifier: Option<Verifier>,
-    security_cache: Arc<Mutex<(u64, HashMap<String, bool>)>>,
     #[allow(dead_code)]
     cdc: CdcBridge,
 }
@@ -119,7 +117,6 @@ impl Di {
             "event=query_cache_configured max_bytes={}",
             config.cache_size_bytes
         );
-        let classifier = ReadClassifier::new(replicated.clone());
         let verifier = Verifier::build(
             config.jwt_secret,
             config.jwt_public_key,
@@ -132,17 +129,15 @@ impl Di {
         );
 
         let di = Di {
-            db,
-            replica,
+            db: db.clone(),
+            replica: replica.clone(),
             versions,
             cache,
-            classifier,
+            operations: ReadOperations::new(db.clone(), replica.clone(), replicated.clone(), verifier),
             live,
             tables: replicated,
             bind_addr: config.bind_addr,
             cors_origin: config.cors_origin,
-            verifier,
-            security_cache: Arc::new(Mutex::new((0, HashMap::new()))),
             cdc,
         };
 
@@ -179,8 +174,8 @@ impl Di {
         &self.cache
     }
 
-    pub fn classifier(&self) -> &ReadClassifier {
-        &self.classifier
+    pub fn operations(&self) -> &ReadOperations {
+        &self.operations
     }
 
     pub fn live(&self) -> &LiveHub {
@@ -199,67 +194,6 @@ impl Di {
         self.cors_origin.as_deref()
     }
 
-    pub fn verifier(&self) -> Option<&Verifier> {
-        self.verifier.as_ref()
-    }
-
-    pub async fn is_private(&self, tables: &[String]) -> Result<bool, CacheError> {
-        let version = self.replica.security_version().await?;
-        {
-            let cache = self.security_cache.lock().unwrap();
-            if cache.0 == version && tables.iter().all(|table| cache.1.contains_key(table)) {
-                return Ok(Self::merge_verdicts(tables, &cache.1));
-            }
-        }
-        let verdicts = self.classify_security(tables).await?;
-        let mut cache = self.security_cache.lock().unwrap();
-        if cache.0 != version {
-            cache.0 = version;
-            cache.1.clear();
-        }
-        for (table, private) in &verdicts {
-            cache.1.insert(table.clone(), *private);
-        }
-        Ok(Self::merge_verdicts(tables, &verdicts))
-    }
-
-    fn merge_verdicts(tables: &[String], verdicts: &HashMap<String, bool>) -> bool {
-        tables
-            .iter()
-            .any(|table| verdicts.get(table).copied().unwrap_or(true))
-    }
-
-    async fn classify_security(
-        &self,
-        tables: &[String],
-    ) -> Result<HashMap<String, bool>, CacheError> {
-        if tables.is_empty() {
-            return Ok(HashMap::new());
-        }
-        let names: Vec<String> = tables.to_vec();
-        let rows = self
-            .db
-            .query(
-                "select lower(c.relname), \
-                        (c.relrowsecurity or not has_table_privilege('public', c.oid, 'SELECT'))::int \
-                 from pg_class c join pg_namespace n on n.oid = c.relnamespace \
-                 where c.relkind = 'r' \
-                   and n.nspname not in ('pg_catalog', 'information_schema') \
-                   and lower(c.relname) = any($1)",
-                &[&names],
-            )
-            .await?;
-        let mut verdicts = HashMap::new();
-        for row in &rows {
-            let name: String = row.get(0)?;
-            let private: i32 = row.get(1)?;
-            verdicts
-                .entry(name)
-                .and_modify(|existing| *existing = true)
-                .or_insert(private == 1);
-        }
-        Ok(verdicts)
-    }
 }
 
 async fn scan_schema(
@@ -336,7 +270,7 @@ fn parse_sslmode(value: &str) -> SslMode {
 
 #[cfg(test)]
 mod tests {
-    use super::Di;
+    use crate::operations::merge_verdicts;
     use std::collections::HashMap;
 
     fn verdicts(pairs: &[(&str, bool)]) -> HashMap<String, bool> {
@@ -346,23 +280,23 @@ mod tests {
     #[test]
     fn any_private_table_makes_query_private() {
         let v = verdicts(&[("pub", false), ("secret", true)]);
-        assert!(Di::merge_verdicts(&["pub".into(), "secret".into()], &v));
+        assert!(merge_verdicts(&["pub".into(), "secret".into()], &v));
     }
 
     #[test]
     fn all_public_tables_stay_public() {
         let v = verdicts(&[("a", false), ("b", false)]);
-        assert!(!Di::merge_verdicts(&["a".into(), "b".into()], &v));
+        assert!(!merge_verdicts(&["a".into(), "b".into()], &v));
     }
 
     #[test]
     fn unknown_table_fails_closed_to_private() {
         let v = verdicts(&[("a", false)]);
-        assert!(Di::merge_verdicts(&["ghost".into()], &v));
+        assert!(merge_verdicts(&["ghost".into()], &v));
     }
 
     #[test]
     fn empty_tables_are_public() {
-        assert!(!Di::merge_verdicts(&[], &verdicts(&[])));
+        assert!(!merge_verdicts(&[], &verdicts(&[])));
     }
 }

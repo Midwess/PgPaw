@@ -117,9 +117,8 @@ fn authenticate(req: &HttpRequest) -> Result<Option<Principal>, CacheError> {
             log::warn!("event=auth_failed reason=malformed_authorization_header");
             CacheError::Unauthorized("malformed Authorization header".to_string())
         })?;
-    match Di::instance().verifier() {
-        Some(verifier) => match verifier.verify(token) {
-            Ok(principal) => {
+    match Di::instance().operations().authenticate(Some(token)) {
+            Ok(Some(principal)) => {
                 log::info!("event=auth_verified role={}", principal.role);
                 Ok(Some(principal))
             }
@@ -127,13 +126,7 @@ fn authenticate(req: &HttpRequest) -> Result<Option<Principal>, CacheError> {
                 log::warn!("event=auth_failed error={:?}", error.to_string());
                 Err(error)
             }
-        },
-        None => {
-            log::warn!("event=auth_failed reason=jwt_verification_not_configured");
-            Err(CacheError::Unauthorized(
-                "a token was presented but JWT verification is not configured".to_string(),
-            ))
-        }
+            Ok(None) => unreachable!(),
     }
 }
 
