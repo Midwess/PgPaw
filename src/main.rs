@@ -40,6 +40,10 @@ struct ServeOptions {
     /// Port for the PgPaw HTTP API
     #[arg(long, env = "PGPAW_PORT", default_value_t = 8080)]
     port: u16,
+    #[cfg(feature = "az-wire")]
+    /// Port for the native az-wire host
+    #[arg(long, env = "PGPAW_AZ_WIRE_PORT")]
+    az_wire_port: Option<u16>,
     /// Data directory for the local pglite replica
     #[arg(long, env = "PGPAW_DATA_DIR", default_value = "./cache-data")]
     data_dir: PathBuf,
@@ -276,4 +280,34 @@ fn timestamp() -> String {
     OffsetDateTime::now_utc()
         .format(&Rfc3339)
         .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
+}
+
+#[cfg(all(test, feature = "az-wire"))]
+mod tests {
+    use super::{Cli, Command};
+    use clap::Parser;
+
+    #[test]
+    fn az_wire_port_is_optional_for_implicit_and_explicit_serve() {
+        let implicit = Cli::try_parse_from(["pgpaw"]).unwrap();
+        assert_eq!(implicit.serve.az_wire_port, None);
+
+        let explicit = Cli::try_parse_from(["pgpaw", "serve"]).unwrap();
+        let Some(Command::Serve(explicit)) = explicit.command else {
+            panic!("expected serve command");
+        };
+        assert_eq!(explicit.az_wire_port, None);
+    }
+
+    #[test]
+    fn az_wire_port_parses_for_implicit_and_explicit_serve() {
+        let implicit = Cli::try_parse_from(["pgpaw", "--az-wire-port", "9000"]).unwrap();
+        assert_eq!(implicit.serve.az_wire_port, Some(9000));
+
+        let explicit = Cli::try_parse_from(["pgpaw", "serve", "--az-wire-port", "9001"]).unwrap();
+        let Some(Command::Serve(explicit)) = explicit.command else {
+            panic!("expected serve command");
+        };
+        assert_eq!(explicit.az_wire_port, Some(9001));
+    }
 }
