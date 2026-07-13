@@ -241,6 +241,8 @@ fn spawn_pgpaw(host: String, port: u16, user: String, pass: String, http_port: u
     std::thread::spawn(move || {
         let config = pgpaw::ServerConfig {
             bind_addr: format!("127.0.0.1:{http_port}"),
+            az_wire_addr: None,
+            az_wire_node: "pgpaw".into(),
             data_dir: std::env::temp_dir().join(format!("pgpaw-bench-{}", std::process::id())),
             max_connections: 8,
             cache_size_bytes: 256 * 1024 * 1024,

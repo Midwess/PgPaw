@@ -130,9 +130,14 @@ fn handler_error(error: CacheError) -> HandlerError {
 #[cfg(test)]
 mod tests {
     use super::{decode_event, handler_error};
-    use az_wire::ErrorCode;
+    use az_wire::{ErrorCode, HostConfig, NodeBuilder, TopologyConfig};
     use crate::error::CacheError;
     use crate::wire::LiveEvent;
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
+    #[cfg(unix)]
+    use std::process::Command;
+    #[cfg(unix)]
+    use std::time::Duration;
 
     #[test]
     fn decodes_sse_delta_as_typed_event() {
@@ -152,5 +157,76 @@ mod tests {
     fn mutation_rejection_is_typed_for_wire() {
         let error = handler_error(CacheError::Rejected("only read-only SELECT queries are cacheable; writes and DDL are not supported".into()));
         assert_eq!(error.code, ErrorCode::InvalidInput);
+    }
+
+    #[tokio::test]
+    async fn native_topology_binds_and_releases_its_listener() {
+        let address = free_address();
+        let node = NodeBuilder::new("pgpaw-test")
+            .insecure_accept_declared_peer_identities()
+            .build()
+            .unwrap();
+        let topology = node
+            .start_topology(TopologyConfig::host(websocket_host(address)))
+            .await
+            .unwrap();
+        assert_eq!(topology.websocket_addr(), Some(address));
+        assert!(TcpListener::bind(address).is_err());
+        topology.shutdown().await.unwrap();
+        TcpListener::bind(address).unwrap();
+    }
+
+    #[tokio::test]
+    async fn native_topology_reports_port_collision() {
+        let address = free_address();
+        let collision = TcpListener::bind(address).unwrap();
+        let node = NodeBuilder::new("pgpaw-test")
+            .insecure_accept_declared_peer_identities()
+            .build()
+            .unwrap();
+        assert!(node
+            .start_topology(TopologyConfig::host(websocket_host(address)))
+            .await
+            .is_err());
+        drop(collision);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn shutdown_signal_helper() {
+        if std::env::var_os("PGPAW_SIGNAL_HELPER").is_some() {
+            crate::shutdown_signal().await.unwrap();
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sigterm_completes_the_production_signal_wait() {
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "az_wire::tests::shutdown_signal_helper",
+                "--nocapture",
+            ])
+            .env("PGPAW_SIGNAL_HELPER", "1")
+            .spawn()
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+        let sent = unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
+        assert_eq!(sent, 0);
+        assert!(child.wait().unwrap().success());
+    }
+
+    fn websocket_host(address: SocketAddr) -> HostConfig {
+        let mut host = HostConfig::new(address);
+        host.webtransport = false;
+        host
+    }
+
+    fn free_address() -> SocketAddr {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port)
     }
 }

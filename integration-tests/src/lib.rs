@@ -121,6 +121,8 @@ impl Server {
         let port = free_port();
         let config = pgpaw::ServerConfig {
             bind_addr: format!("127.0.0.1:{port}"),
+            az_wire_addr: None,
+            az_wire_node: "pgpaw".to_string(),
             data_dir: PathBuf::from(data.path()),
             max_connections: 8,
             cache_size_bytes: 64 * 1024 * 1024,
@@ -298,6 +300,8 @@ pub async fn run_and_capture_error(
     let port = free_port();
     let config = pgpaw::ServerConfig {
         bind_addr: format!("127.0.0.1:{port}"),
+        az_wire_addr: None,
+        az_wire_node: "pgpaw".to_string(),
         data_dir: PathBuf::from(data.path()),
         max_connections: 8,
         cache_size_bytes: 64 * 1024 * 1024,

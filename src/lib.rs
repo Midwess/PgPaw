@@ -103,18 +103,7 @@ pub async fn run(config: ServerConfig) -> Result<(), CacheError> {
     );
     let handle = server.handle();
     let mut server = Box::pin(server);
-    #[cfg(unix)]
-    let signal = async {
-        let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .map_err(CacheError::Io)?;
-        tokio::select! {
-            biased;
-            result = tokio::signal::ctrl_c() => result.map_err(CacheError::Io),
-            _ = terminate.recv() => Ok(()),
-        }
-    };
-    #[cfg(not(unix))]
-    let signal = async { tokio::signal::ctrl_c().await.map_err(CacheError::Io) };
+    let signal = shutdown_signal();
     tokio::pin!(signal);
     #[cfg(feature = "az-wire")]
     let (result, http_complete) = match &mut topology {
@@ -158,6 +147,22 @@ pub async fn run(config: ServerConfig) -> Result<(), CacheError> {
     Di::instance().shutdown().await;
     log::info!("event=server_shutdown_complete");
     result
+}
+
+#[cfg(all(feature = "server", unix))]
+async fn shutdown_signal() -> Result<(), CacheError> {
+    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .map_err(CacheError::Io)?;
+    tokio::select! {
+        biased;
+        result = tokio::signal::ctrl_c() => result.map_err(CacheError::Io),
+        _ = terminate.recv() => Ok(()),
+    }
+}
+
+#[cfg(all(feature = "server", not(unix)))]
+async fn shutdown_signal() -> Result<(), CacheError> {
+    tokio::signal::ctrl_c().await.map_err(CacheError::Io)
 }
 
 #[cfg(feature = "server")]

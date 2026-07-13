@@ -357,4 +357,31 @@ mod tests {
         ])
         .is_err());
     }
+
+    #[test]
+    fn server_config_is_http_only_without_az_wire_port() {
+        let config = Cli::try_parse_from(["pgpaw"]).unwrap().serve.config();
+        assert_eq!(config.bind_addr, "127.0.0.1:8080");
+        assert_eq!(config.az_wire_addr, None);
+    }
+
+    #[test]
+    fn server_config_keeps_http_and_az_wire_addresses_independent() {
+        let config = Cli::try_parse_from([
+            "pgpaw",
+            "--host",
+            "127.0.0.2",
+            "--port",
+            "8081",
+            "--az-wire-host",
+            "127.0.0.3",
+            "--az-wire-port",
+            "9000",
+        ])
+        .unwrap()
+        .serve
+        .config();
+        assert_eq!(config.bind_addr, "127.0.0.2:8081");
+        assert_eq!(config.az_wire_addr.unwrap().to_string(), "127.0.0.3:9000");
+    }
 }
