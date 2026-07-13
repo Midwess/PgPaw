@@ -1,4 +1,8 @@
 use std::path::PathBuf;
+#[cfg(feature = "az-wire")]
+use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(feature = "az-wire")]
+use std::sync::Arc;
 
 use pglite::{MultiProcessOptions, PGlite};
 
@@ -29,6 +33,10 @@ impl PrimaryConfig {
 pub struct PrimaryHandle {
     db: PGlite,
     dsn: String,
+    #[cfg(feature = "az-wire")]
+    topology: Option<::az_wire::AzWireTopology>,
+    #[cfg(feature = "az-wire")]
+    observer: Option<PrimaryObserver>,
 }
 
 impl PrimaryHandle {
@@ -36,6 +44,65 @@ impl PrimaryHandle {
         &self.dsn
     }
 
+    #[cfg(feature = "az-wire")]
+    pub async fn attach_child(
+        &mut self,
+        node: impl Into<String>,
+        topology: ::az_wire::TopologyConfig,
+    ) -> Result<(), CacheError> {
+        if self.topology.is_some() {
+            return Err(CacheError::Config("primary child is already attached".into()));
+        }
+        if topology.host.is_some() || topology.parent.is_none() {
+            return Err(CacheError::Config("embedded primary requires a listenerless parent topology".into()));
+        }
+        let (tables, pk, full) = crate::di::scan_schema(&self.db).await?;
+        let versions = crate::version::VersionIndex::new(pk.clone(), full);
+        let bridge = crate::cdc::CdcBridge::primary(versions.clone())?;
+        let live = crate::live::LiveHub::start(&bridge, self.db.clone(), Arc::new(pk));
+        let security_version = Arc::new(AtomicU64::new(0));
+        let operations = crate::operations::ReadOperations::primary(
+            self.db.clone(),
+            tables.clone(),
+            crate::cache::QueryCache::new(64 * 1024 * 1024),
+            versions,
+            live,
+            security_version.clone(),
+        );
+        let observer = PrimaryObserver::start(&self.db, &tables, bridge, security_version).await?;
+        let node = node.into();
+        let built = crate::register_az_wire(
+            ::az_wire::NodeBuilder::new(&node).insecure_accept_declared_peer_identities(),
+            operations,
+        )
+        .build()
+        .map_err(|error| CacheError::Config(error.to_string()))?;
+        match built.start_topology(topology).await {
+            Ok(running) => {
+                self.observer = Some(observer);
+                self.topology = Some(running);
+                Ok(())
+            }
+            Err(error) => {
+                observer.shutdown(&self.db).await?;
+                Err(CacheError::Config(error.to_string()))
+            }
+        }
+    }
+
+    #[cfg(feature = "az-wire")]
+    pub async fn shutdown(mut self) -> Result<(), CacheError> {
+        if let Some(topology) = self.topology.take() {
+            topology.shutdown().await.map_err(|error| CacheError::Config(error.to_string()))?;
+        }
+        if let Some(observer) = self.observer.take() {
+            observer.shutdown(&self.db).await?;
+        }
+        self.db.close().await?;
+        Ok(())
+    }
+
+    #[cfg(not(feature = "az-wire"))]
     pub async fn shutdown(self) -> Result<(), CacheError> {
         self.db.close().await?;
         Ok(())
@@ -85,22 +152,35 @@ pub async fn open_primary(config: &PrimaryConfig) -> Result<PrimaryHandle, Cache
         max_connections: config.max_connections,
         ..Default::default()
     };
-    let db = PGlite::open_multi_process(&config.data_dir, options).await?;
-    let prepared = async {
-        if config.database != "postgres" {
-            let literal = config.database.replace('\'', "''");
-            let database = config.database.replace('"', "\"\"");
-            if db
-                .query(
-                    &format!("SELECT 1 FROM pg_database WHERE datname = '{literal}'"),
-                    &[],
-                )
-                .await?
-                .is_empty()
-            {
-                db.exec(&format!("CREATE DATABASE \"{database}\"")).await?;
-            }
+    let bootstrap = PGlite::open_multi_process(&config.data_dir, options.clone()).await?;
+    if config.database == "postgres" {
+        let db = bootstrap;
+        return finish_primary(config, db).await;
+    }
+    {
+        let literal = config.database.replace('\'', "''");
+        let database = config.database.replace('"', "\"\"");
+        if bootstrap
+            .query(
+                &format!("SELECT 1 FROM pg_database WHERE datname = '{literal}'"),
+                &[],
+            )
+            .await?
+            .is_empty()
+        {
+            bootstrap.exec(&format!("CREATE DATABASE \"{database}\"")).await?;
         }
+        bootstrap.close().await?;
+    }
+    let db = PGlite::open_multi_process(&config.data_dir, MultiProcessOptions {
+        database: config.database.clone(),
+        ..options
+    }).await?;
+    finish_primary(config, db).await
+}
+
+async fn finish_primary(config: &PrimaryConfig, db: PGlite) -> Result<PrimaryHandle, CacheError> {
+    let prepared = async {
         let base = db
             .connection_uri()
             .ok_or_else(|| CacheError::Config("primary engine exposes no connection_uri".into()))?;
@@ -126,7 +206,60 @@ pub async fn open_primary(config: &PrimaryConfig) -> Result<PrimaryHandle, Cache
         }
     };
     log::info!("event=primary_open_complete data_dir={:?}", config.data_dir);
-    Ok(PrimaryHandle { db, dsn })
+    Ok(PrimaryHandle {
+        db,
+        dsn,
+        #[cfg(feature = "az-wire")]
+        topology: None,
+        #[cfg(feature = "az-wire")]
+        observer: None,
+    })
+}
+
+#[cfg(feature = "az-wire")]
+struct PrimaryObserver {
+    channel: String,
+    token: u64,
+    bridge: crate::cdc::CdcBridge,
+}
+
+#[cfg(feature = "az-wire")]
+impl PrimaryObserver {
+    async fn start(
+        db: &PGlite,
+        tables: &std::collections::HashSet<String>,
+        bridge: crate::cdc::CdcBridge,
+        security_version: Arc<AtomicU64>,
+    ) -> Result<PrimaryObserver, CacheError> {
+        let channel = format!("pgpaw_primary_{}", std::process::id());
+        let callback_bridge = bridge.clone();
+        let token = db.listen(&channel, move |payload| {
+            let Some((txid, table)) = payload.split_once(':') else { return };
+            let Ok(xid) = txid.parse::<u32>() else { return };
+            let lsn = security_version.fetch_add(1, Ordering::SeqCst) + 1;
+            callback_bridge.publish(pglite::CommittedTransaction {
+                xid,
+                commit_lsn: pglite::Lsn(lsn),
+                end_lsn: pglite::Lsn(lsn),
+                commit_ts: 0,
+                changes: vec![pglite::RowChange::Truncate { schema: "public".into(), table: table.into() }],
+            });
+        }).await?;
+        for table in tables {
+            let quoted = table.replace('"', "\"\"");
+            let function = format!("_pgpaw_observe_{}", table.replace(|c: char| !c.is_ascii_alphanumeric(), "_"));
+            db.exec(&format!(
+                "CREATE OR REPLACE FUNCTION {function}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_notify('{channel}', txid_current()::text || ':' || TG_TABLE_NAME); RETURN NULL; END $$; DROP TRIGGER IF EXISTS {function} ON \"{quoted}\"; CREATE TRIGGER {function} AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON \"{quoted}\" FOR EACH STATEMENT EXECUTE FUNCTION {function}()"
+            )).await?;
+        }
+        Ok(PrimaryObserver { channel, token, bridge })
+    }
+
+    async fn shutdown(self, db: &PGlite) -> Result<(), CacheError> {
+        self.bridge.stop();
+        db.unlisten_token(&self.channel, self.token).await?;
+        Ok(())
+    }
 }
 
 pub async fn run_primary(config: PrimaryConfig) -> Result<(), CacheError> {

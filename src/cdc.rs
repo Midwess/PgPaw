@@ -14,6 +14,7 @@ pub struct CdcBridge {
     stop: Arc<AtomicBool>,
     tx: broadcast::Sender<Arc<CommittedTransaction>>,
     handle: Arc<JoinHandle<()>>,
+    input: Option<std::sync::mpsc::Sender<Arc<CommittedTransaction>>>,
 }
 
 impl CdcBridge {
@@ -49,7 +50,40 @@ impl CdcBridge {
             stop,
             tx,
             handle: Arc::new(handle),
+            input: None,
         })
+    }
+
+    pub(crate) fn primary(versions: VersionIndex) -> Result<CdcBridge, CacheError> {
+        let (input, rx) = std::sync::mpsc::channel::<Arc<CommittedTransaction>>();
+        let (tx, _) = broadcast::channel(1024);
+        let stop = Arc::new(AtomicBool::new(false));
+        let thread_tx = tx.clone();
+        let thread_stop = stop.clone();
+        let handle = std::thread::Builder::new()
+            .name("pgpaw-cdc".into())
+            .spawn(move || {
+                while let Ok(txn) = rx.recv() {
+                    if thread_stop.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    versions.advance(txn.as_ref());
+                    let _ = thread_tx.send(txn);
+                }
+            })
+            .map_err(CacheError::Io)?;
+        Ok(CdcBridge {
+            stop,
+            tx,
+            handle: Arc::new(handle),
+            input: Some(input),
+        })
+    }
+
+    pub(crate) fn publish(&self, transaction: CommittedTransaction) {
+        if let Some(input) = &self.input {
+            let _ = input.send(Arc::new(transaction));
+        }
     }
 
     #[allow(dead_code)]

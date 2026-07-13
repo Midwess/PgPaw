@@ -208,7 +208,7 @@ impl Di {
 
 }
 
-async fn scan_schema(
+pub(crate) async fn scan_schema(
     db: &PGlite,
 ) -> Result<(HashSet<String>, HashMap<String, String>, HashSet<String>), CacheError> {
     let table_rows = db

@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use pglite::{PGlite, Replica};
@@ -14,7 +15,8 @@ use crate::version::VersionIndex;
 #[derive(Clone)]
 pub struct ReadOperations {
     db: PGlite,
-    replica: Replica,
+    replica: Option<Replica>,
+    security_version: Arc<AtomicU64>,
     classifier: ReadClassifier,
     verifier: Option<Verifier>,
     security_cache: Arc<Mutex<(u64, HashMap<String, bool>)>>,
@@ -41,13 +43,35 @@ impl ReadOperations {
     ) -> ReadOperations {
         ReadOperations {
             db,
-            replica,
+            replica: Some(replica),
+            security_version: Arc::new(AtomicU64::new(0)),
             classifier: ReadClassifier::new(replicated),
             verifier,
             security_cache: Arc::new(Mutex::new((0, HashMap::new()))),
             cache,
             versions,
             live,
+        }
+    }
+
+    pub(crate) fn primary(
+        db: PGlite,
+        tables: HashSet<String>,
+        cache: QueryCache,
+        versions: VersionIndex,
+        live: LiveHub,
+        security_version: Arc<AtomicU64>,
+    ) -> ReadOperations {
+        ReadOperations {
+            db,
+            replica: None,
+            classifier: ReadClassifier::new(tables),
+            verifier: None,
+            security_cache: Arc::new(Mutex::new((0, HashMap::new()))),
+            cache,
+            versions,
+            live,
+            security_version,
         }
     }
 
@@ -63,8 +87,10 @@ impl ReadOperations {
     }
 
     pub async fn prepare(&self, sql: &str, principal: Option<Principal>) -> Result<PreparedRead, CacheError> {
-        if self.replica.is_halted() {
-            return Err(CacheError::Halted(self.replica.halt_reason().unwrap_or_else(|| "unknown".to_string())));
+        if let Some(replica) = &self.replica {
+            if replica.is_halted() {
+                return Err(CacheError::Halted(replica.halt_reason().unwrap_or_else(|| "unknown".to_string())));
+            }
         }
         let query = self.classifier.classify(sql)?;
         if query.tables.len() > 1 {
@@ -124,7 +150,10 @@ impl ReadOperations {
     }
 
     async fn is_private(&self, tables: &[String]) -> Result<bool, CacheError> {
-        let version = self.replica.security_version().await?;
+        let version = match &self.replica {
+            Some(replica) => replica.security_version().await?,
+            None => self.security_version.load(Ordering::SeqCst),
+        };
         {
             let cache = self.security_cache.lock().unwrap();
             if cache.0 == version && tables.iter().all(|table| cache.1.contains_key(table)) {
