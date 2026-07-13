@@ -59,6 +59,8 @@ az-wire = { path = "az-wire/crates/az-wire", optional = true }
 futures-util = { version = "0.3", optional = true }
 
 [dev-dependencies]
+az-wire-transport = { path = "az-wire/crates/az-wire-transport" }
 libc = "0.2"
+serial_test = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tokio-postgres = "0.7"
