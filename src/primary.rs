@@ -63,13 +63,15 @@ impl PrimaryHandle {
     }
 
     #[cfg(feature = "az-wire")]
-    pub async fn wait_child(&mut self) -> Result<(), CacheError> {
-        self.topology
-            .as_mut()
-            .ok_or_else(|| CacheError::Config("primary child is not attached".into()))?
-            .wait()
-            .await
-            .map_err(|error| CacheError::Config(error.to_string()))
+    pub async fn wait_child(&self) -> Result<(), CacheError> {
+        let topology = self
+            .topology
+            .as_ref()
+            .ok_or_else(|| CacheError::Config("primary child is not attached".into()))?;
+        while !topology.is_finished() {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        Ok(())
     }
 
     #[cfg(feature = "az-wire")]
