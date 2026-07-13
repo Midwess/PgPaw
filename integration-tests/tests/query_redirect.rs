@@ -45,8 +45,17 @@ async fn public_query_is_a_content_addressed_redirect_cache() {
     assert_eq!(body1.len(), 2);
 
     let r2 = server.query(sql, None).await;
-    let loc2 = r2.headers().get("location").unwrap().to_str().unwrap().to_string();
-    assert_eq!(loc1, loc2, "content-addressed hash is stable for identical SQL");
+    let loc2 = r2
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        loc1, loc2,
+        "content-addressed hash is stable for identical SQL"
+    );
 
     let snap2 = server.cursor(&loc1).await;
     assert_eq!(etag(&snap2), etag1, "ETag stable for unchanged content");
@@ -57,7 +66,13 @@ async fn public_query_is_a_content_addressed_redirect_cache() {
     up.run_sql("INSERT INTO items VALUES (3,'gamma')").await;
     server.wait_rows(sql, None, 3).await;
     let r3 = server.query(sql, None).await;
-    let loc3 = r3.headers().get("location").unwrap().to_str().unwrap().to_string();
+    let loc3 = r3
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
     assert_ne!(loc1, loc3, "upstream change bumps the version");
     let body3 = harness::as_array(server.cursor(&loc3).await).await;
     assert_eq!(body3.len(), 3, "new snapshot includes the inserted row");

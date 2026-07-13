@@ -193,8 +193,10 @@ impl PrimaryOptions {
     fn config(&self) -> PrimaryConfig {
         PrimaryConfig {
             data_dir: self.data_dir.clone(),
+            database: "postgres".into(),
             listen_addresses: self.primary_listen.clone(),
             port: self.primary_port,
+            min_connections: 0,
             max_connections: self.max_connections,
         }
     }

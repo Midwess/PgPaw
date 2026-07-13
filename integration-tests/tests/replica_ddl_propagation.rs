@@ -45,8 +45,14 @@ async fn security_ddl_after_launch_propagates_and_reclassifies() {
         .wait_status("select * from docs order by id", None, 401, 90)
         .await;
 
-    let token_a = mint(JWT_SECRET, json!({"role":"member","org_id":1,"exp":FAR_EXP}));
-    let token_b = mint(JWT_SECRET, json!({"role":"member","org_id":2,"exp":FAR_EXP}));
+    let token_a = mint(
+        JWT_SECRET,
+        json!({"role":"member","org_id":1,"exp":FAR_EXP}),
+    );
+    let token_b = mint(
+        JWT_SECRET,
+        json!({"role":"member","org_id":2,"exp":FAR_EXP}),
+    );
 
     server
         .wait_rows("select * from docs order by id", Some(&token_a), 2)

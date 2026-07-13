@@ -46,7 +46,10 @@ async fn classifier_fails_closed_on_every_edge() {
         .wait_rows("select * from open_t order by id", None, 2)
         .await;
 
-    let token_a = mint(JWT_SECRET, json!({"role":"member","org_id":1,"exp":FAR_EXP}));
+    let token_a = mint(
+        JWT_SECRET,
+        json!({"role":"member","org_id":1,"exp":FAR_EXP}),
+    );
 
     let control = server.query("select * from open_t order by id", None).await;
     assert_eq!(control.status().as_u16(), 303, "open_t is genuinely public");
@@ -54,7 +57,11 @@ async fn classifier_fails_closed_on_every_edge() {
     let nopolicy_anon = server
         .query("select * from rls_nopolicy order by id", None)
         .await;
-    assert_eq!(nopolicy_anon.status().as_u16(), 401, "rls table needs a token");
+    assert_eq!(
+        nopolicy_anon.status().as_u16(),
+        401,
+        "rls table needs a token"
+    );
     let nopolicy_auth = server
         .query("select * from rls_nopolicy order by id", Some(&token_a))
         .await;
@@ -69,7 +76,11 @@ async fn classifier_fails_closed_on_every_edge() {
             None,
         )
         .await;
-    assert_eq!(mixed.status().as_u16(), 401, "private table taints the join");
+    assert_eq!(
+        mixed.status().as_u16(),
+        401,
+        "private table taints the join"
+    );
 
     let dup = server.query("select * from dup_t", None).await;
     assert_eq!(

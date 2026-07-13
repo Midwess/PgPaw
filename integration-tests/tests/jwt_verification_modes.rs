@@ -27,9 +27,18 @@ async fn verifier_accepts_only_well_formed_tokens() {
     seed(&up).await;
     let server = Server::start(&up, Some(JWT_SECRET)).await;
 
-    let valid = mint(JWT_SECRET, json!({"role":"member","org_id":1,"exp":FAR_EXP}));
-    let expired = mint(JWT_SECRET, json!({"role":"member","org_id":1,"exp":PAST_EXP}));
-    let bad_sig = mint("wrong-secret", json!({"role":"member","org_id":1,"exp":FAR_EXP}));
+    let valid = mint(
+        JWT_SECRET,
+        json!({"role":"member","org_id":1,"exp":FAR_EXP}),
+    );
+    let expired = mint(
+        JWT_SECRET,
+        json!({"role":"member","org_id":1,"exp":PAST_EXP}),
+    );
+    let bad_sig = mint(
+        "wrong-secret",
+        json!({"role":"member","org_id":1,"exp":FAR_EXP}),
+    );
     let missing_role = mint(JWT_SECRET, json!({"org_id":1,"exp":FAR_EXP}));
 
     server

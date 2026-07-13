@@ -1,3 +1,6 @@
 [submodule "docs"]
 	path = docs
 	url = git@github.com:Midwess/web.git
+[submodule "az-wire"]
+	path = az-wire
+	url = git@github.com:Midwess/az-wire.git

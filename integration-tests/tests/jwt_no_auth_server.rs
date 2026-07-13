@@ -25,7 +25,10 @@ async fn server_without_jwt_config_fails_closed_but_serves_public() {
         .wait_rows("select * from pub_t order by id", None, 2)
         .await;
 
-    let token = mint(JWT_SECRET, json!({"role":"member","org_id":1,"exp":FAR_EXP}));
+    let token = mint(
+        JWT_SECRET,
+        json!({"role":"member","org_id":1,"exp":FAR_EXP}),
+    );
 
     let presented = server
         .query("select * from secret_t order by id", Some(&token))

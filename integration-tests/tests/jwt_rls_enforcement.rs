@@ -34,9 +34,18 @@ async fn jwt_scoped_query_enforces_upstream_rls() {
 
     let server = Server::start(&up, Some(JWT_SECRET)).await;
 
-    let token_a = mint(JWT_SECRET, json!({"role":"member","org_id":1,"exp":FAR_EXP}));
-    let token_b = mint(JWT_SECRET, json!({"role":"member","org_id":2,"exp":FAR_EXP}));
-    let token_expired = mint(JWT_SECRET, json!({"role":"member","org_id":1,"exp":PAST_EXP}));
+    let token_a = mint(
+        JWT_SECRET,
+        json!({"role":"member","org_id":1,"exp":FAR_EXP}),
+    );
+    let token_b = mint(
+        JWT_SECRET,
+        json!({"role":"member","org_id":2,"exp":FAR_EXP}),
+    );
+    let token_expired = mint(
+        JWT_SECRET,
+        json!({"role":"member","org_id":1,"exp":PAST_EXP}),
+    );
 
     server
         .wait_rows("select * from documents order by id", Some(&token_a), 2)
@@ -45,7 +54,11 @@ async fn jwt_scoped_query_enforces_upstream_rls() {
     let public = server
         .query("select id, name from orgs order by id", None)
         .await;
-    assert_eq!(public.status().as_u16(), 303, "public orgs query must redirect");
+    assert_eq!(
+        public.status().as_u16(),
+        303,
+        "public orgs query must redirect"
+    );
     let location = public
         .headers()
         .get("location")
@@ -94,7 +107,11 @@ async fn jwt_scoped_query_enforces_upstream_rls() {
     let no_token = server
         .query("select * from documents order by id", None)
         .await;
-    assert_eq!(no_token.status().as_u16(), 401, "private query needs a token");
+    assert_eq!(
+        no_token.status().as_u16(),
+        401,
+        "private query needs a token"
+    );
 
     let expired = server
         .query("select * from documents order by id", Some(&token_expired))
@@ -119,7 +136,9 @@ async fn jwt_scoped_query_enforces_upstream_rls() {
         "private live opens an SSE stream, got {private_ctype}"
     );
 
-    let public_live = server.live("select id, name from orgs order by id", None).await;
+    let public_live = server
+        .live("select id, name from orgs order by id", None)
+        .await;
     assert_eq!(public_live.status().as_u16(), 200);
     let ctype = public_live
         .headers()
