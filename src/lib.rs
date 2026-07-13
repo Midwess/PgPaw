@@ -101,17 +101,41 @@ pub async fn run(config: ServerConfig) -> Result<(), CacheError> {
         "event=server_ready bind_addr={} health_path=/healthz query_path=/query",
         Di::instance().bind_addr()
     );
+    let handle = server.handle();
+    let mut server = Box::pin(server);
+    #[cfg(unix)]
+    let signal = async {
+        let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .map_err(CacheError::Io)?;
+        tokio::select! {
+            biased;
+            result = tokio::signal::ctrl_c() => result.map_err(CacheError::Io),
+            _ = terminate.recv() => Ok(()),
+        }
+    };
+    #[cfg(not(unix))]
+    let signal = async { tokio::signal::ctrl_c().await.map_err(CacheError::Io) };
+    tokio::pin!(signal);
     #[cfg(feature = "az-wire")]
-    let result = match &mut topology {
+    let (result, http_complete) = match &mut topology {
         Some(topology) => tokio::select! {
             biased;
-            result = server => result.map_err(CacheError::Io),
-            result = topology.wait() => result.map_err(|error| CacheError::Config(error.to_string())),
+            result = &mut signal => (result, false),
+            result = &mut server => (result.map_err(CacheError::Io), true),
+            result = topology.wait() => (result.map_err(|error| CacheError::Config(error.to_string())), false),
         },
-        None => server.await.map_err(CacheError::Io),
+        None => tokio::select! {
+            biased;
+            result = &mut signal => (result, false),
+            result = &mut server => (result.map_err(CacheError::Io), true),
+        },
     };
     #[cfg(not(feature = "az-wire"))]
-    let result = server.await.map_err(CacheError::Io);
+    let (result, http_complete) = tokio::select! {
+        biased;
+        result = &mut signal => (result, false),
+        result = &mut server => (result.map_err(CacheError::Io), true),
+    };
     match &result {
         Ok(()) => log::info!("event=server_stopped result=ok"),
         Err(error) => log::error!(
@@ -120,6 +144,17 @@ pub async fn run(config: ServerConfig) -> Result<(), CacheError> {
         ),
     }
     log::info!("event=server_shutdown_start");
+    handle.stop(true).await;
+    if !http_complete {
+        server.await.map_err(CacheError::Io)?;
+    }
+    #[cfg(feature = "az-wire")]
+    if let Some(topology) = topology {
+        topology
+            .shutdown()
+            .await
+            .map_err(|error| CacheError::Config(error.to_string()))?;
+    }
     Di::instance().shutdown().await;
     log::info!("event=server_shutdown_complete");
     result
