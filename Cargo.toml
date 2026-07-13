@@ -21,20 +21,23 @@ required-features = ["server"]
 
 [features]
 default = ["server"]
-az-wire = ["server", "dep:az-wire", "dep:futures-util"]
-server = [
-    "dep:actix-web",
-    "dep:actix-cors",
+az-wire = ["read", "dep:az-wire", "dep:futures-util"]
+read = [
     "dep:tokio",
     "dep:tokio-stream",
-    "dep:tokio-postgres",
     "dep:sqlparser",
     "dep:moka",
     "dep:jsonwebtoken",
-    "dep:clap",
     "dep:time",
-    "pglite-rs/replica",
     "dep:schemars",
+    "pglite-rs/replica",
+]
+server = [
+    "read",
+    "dep:actix-web",
+    "dep:actix-cors",
+    "dep:tokio-postgres",
+    "dep:clap",
 ]
 
 [dependencies]

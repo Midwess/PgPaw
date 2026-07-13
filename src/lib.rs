@@ -1,33 +1,35 @@
-#[cfg(feature = "server")]
+#[cfg(feature = "read")]
 mod auth;
-#[cfg(feature = "server")]
+#[cfg(feature = "read")]
 mod cache;
-#[cfg(feature = "server")]
+#[cfg(feature = "read")]
 mod cdc;
-#[cfg(feature = "server")]
+#[cfg(feature = "read")]
 mod classify;
 #[cfg(feature = "server")]
 mod di;
-#[cfg(feature = "server")]
+#[cfg(feature = "read")]
 mod diff;
 mod error;
 #[cfg(feature = "server")]
 mod http;
-#[cfg(feature = "server")]
+#[cfg(feature = "read")]
 mod live;
-#[cfg(feature = "server")]
+#[cfg(feature = "read")]
 mod operations;
 #[cfg(feature = "az-wire")]
 mod az_wire;
 mod primary;
-#[cfg(feature = "server")]
+#[cfg(feature = "read")]
 mod rows;
 #[cfg(feature = "server")]
 mod setup;
 mod shadow;
-#[cfg(feature = "server")]
+#[cfg(feature = "read")]
+mod schema;
+#[cfg(feature = "read")]
 mod version;
-#[cfg(feature = "server")]
+#[cfg(feature = "read")]
 pub mod wire;
 
 #[cfg(all(test, feature = "server"))]
@@ -35,16 +37,26 @@ mod tests;
 
 #[cfg(feature = "server")]
 pub use di::{Di, ServerConfig, UpstreamConfig};
-#[cfg(feature = "server")]
+#[cfg(feature = "read")]
 pub use operations::{PreparedRead, ReadOperations};
 #[cfg(feature = "az-wire")]
 pub use az_wire::register_az_wire;
 pub use error::CacheError;
+#[cfg(feature = "az-wire")]
+pub use primary::EmbeddedVerifierConfig;
 pub use primary::{open_primary, run_primary, PrimaryConfig, PrimaryHandle};
 pub use shadow::{open_shadow, ShadowHandle};
 
 #[cfg(feature = "server")]
 pub async fn run(config: ServerConfig) -> Result<(), CacheError> {
+    run_until(config, shutdown_signal()).await
+}
+
+#[cfg(feature = "server")]
+pub async fn run_until<F>(config: ServerConfig, shutdown: F) -> Result<(), CacheError>
+where
+    F: std::future::Future<Output = Result<(), CacheError>>,
+{
     #[cfg(feature = "az-wire")]
     let az_wire = config
         .az_wire_addr
@@ -89,7 +101,9 @@ pub async fn run(config: ServerConfig) -> Result<(), CacheError> {
             match started {
                 Ok(topology) => Some(topology),
                 Err(error) => {
-                    drop(server);
+                    let handle = server.handle();
+                    handle.stop(true).await;
+                    server.await.map_err(CacheError::Io)?;
                     Di::instance().shutdown().await;
                     return Err(error);
                 }
@@ -103,7 +117,7 @@ pub async fn run(config: ServerConfig) -> Result<(), CacheError> {
     );
     let handle = server.handle();
     let mut server = Box::pin(server);
-    let signal = shutdown_signal();
+    let signal = shutdown;
     tokio::pin!(signal);
     #[cfg(feature = "az-wire")]
     let (result, http_complete) = match &mut topology {

@@ -1,10 +1,14 @@
+#[cfg(feature = "server")]
 use std::future::{ready, Ready};
 
+#[cfg(feature = "server")]
 use actix_web::dev::Payload;
+#[cfg(feature = "server")]
 use actix_web::{FromRequest, HttpRequest};
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde_json::Value;
 
+#[cfg(feature = "server")]
 use crate::di::Di;
 use crate::error::CacheError;
 
@@ -94,8 +98,10 @@ fn pinned(alg: Algorithm) -> Validation {
     validation
 }
 
+#[cfg(feature = "server")]
 pub struct AuthOutcome(pub Result<Option<Principal>, CacheError>);
 
+#[cfg(feature = "server")]
 impl FromRequest for AuthOutcome {
     type Error = actix_web::Error;
     type Future = Ready<Result<AuthOutcome, actix_web::Error>>;
@@ -105,6 +111,7 @@ impl FromRequest for AuthOutcome {
     }
 }
 
+#[cfg(feature = "server")]
 fn authenticate(req: &HttpRequest) -> Result<Option<Principal>, CacheError> {
     let Some(header) = req.headers().get("Authorization") else {
         return Ok(None);

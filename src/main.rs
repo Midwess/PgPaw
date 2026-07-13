@@ -216,6 +216,8 @@ impl PrimaryOptions {
             port: self.primary_port,
             min_connections: 0,
             max_connections: self.max_connections,
+            #[cfg(feature = "az-wire")]
+            verifier: None,
         }
     }
 }

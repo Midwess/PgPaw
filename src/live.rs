@@ -83,6 +83,10 @@ impl LiveHub {
         hub
     }
 
+    pub fn subscription_count(&self) -> usize {
+        self.subs.lock().unwrap().len()
+    }
+
     pub fn subscribe(
         &self,
         sql: String,

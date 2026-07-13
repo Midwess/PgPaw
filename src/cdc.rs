@@ -2,7 +2,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
-use pglite::{CommittedTransaction, Replica};
+use pglite::CommittedTransaction;
+#[cfg(feature = "server")]
+use pglite::Replica;
 use tokio::sync::broadcast;
 
 use crate::error::CacheError;
@@ -18,6 +20,7 @@ pub struct CdcBridge {
 }
 
 impl CdcBridge {
+    #[cfg(feature = "server")]
     pub fn start(replica: &Replica, versions: VersionIndex) -> Result<CdcBridge, CacheError> {
         let rx = replica.subscribe();
         let (tx, _) = broadcast::channel(1024);
@@ -54,6 +57,7 @@ impl CdcBridge {
         })
     }
 
+    #[cfg(feature = "az-wire")]
     pub(crate) fn primary(versions: VersionIndex) -> Result<CdcBridge, CacheError> {
         let (input, rx) = std::sync::mpsc::channel::<Arc<CommittedTransaction>>();
         let (tx, _) = broadcast::channel(1024);
@@ -80,6 +84,7 @@ impl CdcBridge {
         })
     }
 
+    #[cfg(feature = "az-wire")]
     pub(crate) fn publish(&self, transaction: CommittedTransaction) {
         if let Some(input) = &self.input {
             let _ = input.send(Arc::new(transaction));

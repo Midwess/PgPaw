@@ -2,7 +2,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use pglite::{PGlite, Replica};
+use pglite::PGlite;
+#[cfg(feature = "server")]
+use pglite::Replica;
 
 use crate::auth::{Principal, Verifier};
 use crate::cache::{CachedResult, QueryCache};
@@ -15,6 +17,7 @@ use crate::version::VersionIndex;
 #[derive(Clone)]
 pub struct ReadOperations {
     db: PGlite,
+    #[cfg(feature = "server")]
     replica: Option<Replica>,
     security_version: Arc<AtomicU64>,
     classifier: ReadClassifier,
@@ -32,6 +35,7 @@ pub struct PreparedRead {
 }
 
 impl ReadOperations {
+    #[cfg(feature = "server")]
     pub fn new(
         db: PGlite,
         replica: Replica,
@@ -54,6 +58,7 @@ impl ReadOperations {
         }
     }
 
+    #[cfg(feature = "az-wire")]
     pub(crate) fn primary(
         db: PGlite,
         tables: HashSet<String>,
@@ -61,12 +66,14 @@ impl ReadOperations {
         versions: VersionIndex,
         live: LiveHub,
         security_version: Arc<AtomicU64>,
+        verifier: Option<Verifier>,
     ) -> ReadOperations {
         ReadOperations {
             db,
+            #[cfg(feature = "server")]
             replica: None,
             classifier: ReadClassifier::new(tables),
-            verifier: None,
+            verifier,
             security_cache: Arc::new(Mutex::new((0, HashMap::new()))),
             cache,
             versions,
@@ -87,6 +94,7 @@ impl ReadOperations {
     }
 
     pub async fn prepare(&self, sql: &str, principal: Option<Principal>) -> Result<PreparedRead, CacheError> {
+        #[cfg(feature = "server")]
         if let Some(replica) = &self.replica {
             if replica.is_halted() {
                 return Err(CacheError::Halted(replica.halt_reason().unwrap_or_else(|| "unknown".to_string())));
@@ -150,10 +158,13 @@ impl ReadOperations {
     }
 
     async fn is_private(&self, tables: &[String]) -> Result<bool, CacheError> {
+        #[cfg(feature = "server")]
         let version = match &self.replica {
             Some(replica) => replica.security_version().await?,
             None => self.security_version.load(Ordering::SeqCst),
         };
+        #[cfg(not(feature = "server"))]
+        let version = self.security_version.load(Ordering::SeqCst);
         {
             let cache = self.security_cache.lock().unwrap();
             if cache.0 == version && tables.iter().all(|table| cache.1.contains_key(table)) {

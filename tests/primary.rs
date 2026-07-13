@@ -9,6 +9,10 @@ use futures_util::StreamExt;
 use pgpaw::wire::{LiveEvent, LIVE_SUBJECT, READ_SUBJECT};
 #[cfg(feature = "az-wire")]
 use serde_json::json;
+#[cfg(feature = "az-wire")]
+use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+#[cfg(feature = "az-wire")]
+use pgpaw::EmbeddedVerifierConfig;
 
 #[tokio::test]
 #[serial_test::serial]
@@ -31,6 +35,8 @@ async fn primary_serves_writable_postgres_over_tcp() {
         port,
         min_connections: 0,
         max_connections: 5,
+        #[cfg(feature = "az-wire")]
+        verifier: None,
     })
     .await
     .expect("open primary over TCP");
@@ -73,6 +79,8 @@ async fn primary_rejects_invalid_connection_bounds_before_starting() {
         port: 0,
         min_connections: 2,
         max_connections: 1,
+        #[cfg(feature = "az-wire")]
+        verifier: None,
     })
     .await;
     let error = match result {
@@ -112,6 +120,10 @@ async fn embedded_child_reads_configured_database_and_observes_external_commits(
         port,
         min_connections: 0,
         max_connections: 5,
+        verifier: Some(EmbeddedVerifierConfig {
+            jwt_secret: "embedded-secret".into(),
+            role_claim: "role".into(),
+        }),
     })
     .await
     .unwrap();
@@ -120,6 +132,7 @@ async fn embedded_child_reads_configured_database_and_observes_external_commits(
     let (client, connection) = tokio_postgres::connect(&external_dsn, NoTls).await.unwrap();
     tokio::spawn(async move { let _ = connection.await; });
     client.batch_execute("CREATE TABLE items (id int primary key, name text); GRANT SELECT ON items TO PUBLIC; INSERT INTO items VALUES (1, 'first')").await.unwrap();
+    client.batch_execute("CREATE ROLE authenticated; CREATE TABLE private_items (id int primary key, owner int, name text); ALTER TABLE private_items ENABLE ROW LEVEL SECURITY; GRANT SELECT ON private_items TO authenticated; CREATE POLICY private_owner ON private_items FOR SELECT TO authenticated USING (owner = ((current_setting('request.jwt.claims', true))::jsonb ->> 'owner')::int); INSERT INTO private_items VALUES (1, 7, 'allowed'), (2, 8, 'denied')").await.unwrap();
 
     primary
         .attach_child(
@@ -143,15 +156,31 @@ async fn embedded_child_reads_configured_database_and_observes_external_commits(
     let cursor = parent.request("pgpaw.cursor", json!({"hash": hash, "version": version.to_string()})).await.unwrap();
     assert_eq!(cursor["rows"], json!([{"id": 1, "name": "first"}]));
 
+    let token = encode(
+        &Header::new(Algorithm::HS256),
+        &json!({"role": "authenticated", "owner": 7, "exp": 4_102_444_800u64}),
+        &EncodingKey::from_secret(b"embedded-secret"),
+    ).unwrap();
+    let protected = parent.request(READ_SUBJECT, json!({"sql": "SELECT id, name FROM private_items ORDER BY id", "bearer": token})).await.unwrap();
+    assert_eq!(protected["rows"], json!([{"id": 1, "name": "allowed"}]));
+    assert!(parent.request(READ_SUBJECT, json!({"sql": "SELECT id FROM private_items", "bearer": "invalid"})).await.is_err());
+    assert!(parent.request(READ_SUBJECT, json!({"sql": "SELECT id FROM private_items", "bearer": null})).await.is_err());
+
     let mut live = parent.subscribe(LIVE_SUBJECT, json!({"sql": "SELECT id, name FROM items ORDER BY id", "bearer": null})).await.unwrap();
     let snapshot: LiveEvent = serde_json::from_slice(&live.next().await.unwrap().unwrap()).unwrap();
     assert!(matches!(snapshot, LiveEvent::Snapshot { .. }));
+    assert_eq!(primary.live_subscription_count(), 1);
     client.execute("INSERT INTO items VALUES ($1, $2)", &[&2i32, &"second"]).await.unwrap();
     let update = tokio::time::timeout(std::time::Duration::from_secs(5), live.next()).await.unwrap().unwrap().unwrap();
     let update: LiveEvent = serde_json::from_slice(&update).unwrap();
     assert!(matches!(update, LiveEvent::Insert { ref row, .. } if row == &json!({"id": 2, "name": "second"})));
 
     drop(live);
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while primary.live_subscription_count() != 0 {
+            tokio::task::yield_now().await;
+        }
+    }).await.unwrap();
     primary.shutdown().await.unwrap();
     hosting.shutdown().await.unwrap();
 }
