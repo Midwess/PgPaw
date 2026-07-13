@@ -147,4 +147,10 @@ mod tests {
         assert_eq!(handler_error(CacheError::Forbidden("rls".into())).code, ErrorCode::Unauthorized);
         assert_eq!(handler_error(CacheError::Halted("replica".into())).code, ErrorCode::Busy);
     }
+
+    #[test]
+    fn mutation_rejection_is_typed_for_wire() {
+        let error = handler_error(CacheError::Rejected("only read-only SELECT queries are cacheable; writes and DDL are not supported".into()));
+        assert_eq!(error.code, ErrorCode::InvalidInput);
+    }
 }
