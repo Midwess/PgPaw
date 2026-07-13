@@ -25,6 +25,8 @@ mod setup;
 mod shadow;
 #[cfg(feature = "server")]
 mod version;
+#[cfg(feature = "server")]
+pub mod wire;
 
 #[cfg(all(test, feature = "server"))]
 mod tests;
