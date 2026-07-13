@@ -11,6 +11,7 @@ use crate::rows;
 use crate::live::{LiveHub, LiveSubscription};
 use crate::version::VersionIndex;
 
+#[derive(Clone)]
 pub struct ReadOperations {
     db: PGlite,
     replica: Replica,

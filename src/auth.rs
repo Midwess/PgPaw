@@ -14,6 +14,7 @@ pub struct Principal {
     pub claims_json: String,
 }
 
+#[derive(Clone)]
 pub struct Verifier {
     key: DecodingKey,
     validation: Validation,

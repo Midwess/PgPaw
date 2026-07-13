@@ -28,6 +28,10 @@ pub struct UpstreamConfig {
 
 pub struct ServerConfig {
     pub bind_addr: String,
+    #[cfg(feature = "az-wire")]
+    pub az_wire_addr: Option<std::net::SocketAddr>,
+    #[cfg(feature = "az-wire")]
+    pub az_wire_node: String,
     pub data_dir: PathBuf,
     pub max_connections: usize,
     pub cache_size_bytes: u64,

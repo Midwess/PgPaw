@@ -37,6 +37,7 @@ const VOLATILE_READ: &[&str] = &[
     "uuid_generate_v4",
 ];
 
+#[derive(Clone)]
 pub struct ReadClassifier {
     replicated: HashSet<String>,
 }

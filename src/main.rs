@@ -188,6 +188,12 @@ impl ServeOptions {
     fn config(&self) -> ServerConfig {
         ServerConfig {
             bind_addr: format!("{}:{}", self.host, self.port),
+            #[cfg(feature = "az-wire")]
+            az_wire_addr: self
+                .az_wire_port
+                .map(|port| std::net::SocketAddr::new(self.az_wire_host, port)),
+            #[cfg(feature = "az-wire")]
+            az_wire_node: self.az_wire_node.clone(),
             data_dir: self.data_dir.clone(),
             max_connections: self.max_connections,
             cache_size_bytes: self.cache_size_bytes,

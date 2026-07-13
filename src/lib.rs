@@ -45,6 +45,10 @@ pub use shadow::{open_shadow, ShadowHandle};
 
 #[cfg(feature = "server")]
 pub async fn run(config: ServerConfig) -> Result<(), CacheError> {
+    #[cfg(feature = "az-wire")]
+    let az_wire = config
+        .az_wire_addr
+        .map(|address| (address, config.az_wire_node.clone()));
     log::info!(
         "event=server_starting bind_addr={} data_dir={:?} max_connections={} cache_size_bytes={} upstream_host={} upstream_port={} upstream_user={} upstream_database={} publication={} slot={} sslmode={} auth_configured={} cors_origin={:?}",
         config.bind_addr,
@@ -66,7 +70,34 @@ pub async fn run(config: ServerConfig) -> Result<(), CacheError> {
         "event=server_ready bind_addr={} health_path=/healthz query_path=/query",
         Di::instance().bind_addr()
     );
-    let result = http::server::serve().await;
+    let server = http::server::bind()?;
+    #[cfg(feature = "az-wire")]
+    let mut topology = match az_wire {
+        Some((address, node)) => {
+            let builder = ::az_wire::NodeBuilder::new(&node)
+                .insecure_accept_declared_peer_identities();
+            let node = register_az_wire(builder, Di::instance().operations().clone())
+                .build()
+                .map_err(|error| CacheError::Config(error.to_string()))?;
+            Some(
+                node.start_topology(::az_wire::TopologyConfig::host(::az_wire::HostConfig::new(address)))
+                    .await
+                    .map_err(|error| CacheError::Config(error.to_string()))?,
+            )
+        }
+        None => None,
+    };
+    #[cfg(feature = "az-wire")]
+    let result = match &mut topology {
+        Some(topology) => tokio::select! {
+            biased;
+            result = server => result.map_err(CacheError::Io),
+            result = topology.wait() => result.map_err(|error| CacheError::Config(error.to_string())),
+        },
+        None => server.await.map_err(CacheError::Io),
+    };
+    #[cfg(not(feature = "az-wire"))]
+    let result = server.await.map_err(CacheError::Io);
     match &result {
         Ok(()) => log::info!("event=server_stopped result=ok"),
         Err(error) => log::error!(
