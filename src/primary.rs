@@ -63,6 +63,16 @@ impl PrimaryHandle {
     }
 
     #[cfg(feature = "az-wire")]
+    pub async fn wait_child(&mut self) -> Result<(), CacheError> {
+        self.topology
+            .as_mut()
+            .ok_or_else(|| CacheError::Config("primary child is not attached".into()))?
+            .wait()
+            .await
+            .map_err(|error| CacheError::Config(error.to_string()))
+    }
+
+    #[cfg(feature = "az-wire")]
     pub fn live_subscription_count(&self) -> usize {
         self.observer.as_ref().map_or(0, |observer| observer.live.subscription_count())
     }
