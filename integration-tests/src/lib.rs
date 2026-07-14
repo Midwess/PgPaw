@@ -121,7 +121,9 @@ impl Server {
         let port = free_port();
         let config = pgpaw::ServerConfig {
             bind_addr: format!("127.0.0.1:{port}"),
+            #[cfg(feature = "az-wire")]
             az_wire_addr: None,
+            #[cfg(feature = "az-wire")]
             az_wire_node: "pgpaw".to_string(),
             data_dir: PathBuf::from(data.path()),
             max_connections: 8,
@@ -299,7 +301,9 @@ pub async fn run_and_capture_error(
     let port = free_port();
     let config = pgpaw::ServerConfig {
         bind_addr: format!("127.0.0.1:{port}"),
+        #[cfg(feature = "az-wire")]
         az_wire_addr: None,
+        #[cfg(feature = "az-wire")]
         az_wire_node: "pgpaw".to_string(),
         data_dir: PathBuf::from(data.path()),
         max_connections: 8,

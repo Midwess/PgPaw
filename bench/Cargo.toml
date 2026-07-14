@@ -6,6 +6,9 @@ rust-version = "1.85"
 license = "MIT"
 publish = false
 
+[features]
+az-wire = ["pgpaw/az-wire"]
+
 [[bin]]
 name = "pgpaw-bench"
 path = "src/main.rs"

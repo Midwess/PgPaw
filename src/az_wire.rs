@@ -134,9 +134,9 @@ mod tests {
     use crate::error::CacheError;
     use crate::wire::LiveEvent;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
-    #[cfg(unix)]
+    #[cfg(all(feature = "server", unix))]
     use std::process::Command;
-    #[cfg(unix)]
+    #[cfg(all(feature = "server", unix))]
     use std::time::Duration;
 
     #[test]
@@ -191,7 +191,7 @@ mod tests {
         drop(collision);
     }
 
-    #[cfg(unix)]
+    #[cfg(all(feature = "server", unix))]
     #[tokio::test]
     async fn shutdown_signal_helper() {
         if std::env::var_os("PGPAW_SIGNAL_HELPER").is_some() {
@@ -199,7 +199,7 @@ mod tests {
         }
     }
 
-    #[cfg(unix)]
+    #[cfg(all(feature = "server", unix))]
     #[test]
     fn sigterm_completes_the_production_signal_wait() {
         let mut child = Command::new(std::env::current_exe().unwrap())
