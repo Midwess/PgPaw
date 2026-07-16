@@ -34,11 +34,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: strip private az-wire feature
+        run: perl -ni -e 'print unless /az-wire/' Cargo.toml integration-tests/Cargo.toml bench/Cargo.toml
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
       - name: build
-        run: cargo build --release --locked --bin pgpaw --target ${{ matrix.target }}
+        run: cargo build --release --bin pgpaw --target ${{ matrix.target }}
       - name: package
         run: tar -C "target/${{ matrix.target }}/release" -czf "pgpaw-${{ matrix.target }}.tar.gz" pgpaw
       - uses: actions/upload-artifact@v4
@@ -74,6 +76,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: strip private az-wire feature
+        run: perl -ni -e 'print unless /az-wire/' Cargo.toml integration-tests/Cargo.toml bench/Cargo.toml
       - uses: dtolnay/rust-toolchain@stable
       - name: publish to crates.io
         env:
@@ -83,7 +87,7 @@ jobs:
           if curl -sf -A "pgpaw-ci (release workflow)" "https://crates.io/api/v1/crates/pgpaw/$V" >/dev/null; then
             echo "pgpaw $V already on crates.io, skipping publish"
           else
-            cargo publish --locked
+            cargo publish --allow-dirty
           fi
 
   publish-npm:

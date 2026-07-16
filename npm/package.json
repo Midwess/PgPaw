@@ -1,6 +1,6 @@
 {
   "name": "pgpaw",
-  "version": "0.3.0",
+  "version": "0.5.0",
   "description": "Read-only Postgres cache + realtime server over an embedded pglite logical replica",
   "license": "MIT",
   "homepage": "https://github.com/Midwess/PgPaw#readme",
