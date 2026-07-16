@@ -1,6 +1,6 @@
 # Tasks: module-architecture-reshape
 
-## Progress: [10/33]
+## Progress: [33/33]
 
 Exit gate for EVERY phase: 4-combo feature matrix green (`--no-default-features --features read` · default · `--no-default-features --features az-wire` · `--all-features`), plus `cargo test --all-features --no-run` after phases 3 and 4. Moves are copy-paste + path/rename edits only — no body changes, no comment additions, no log-line edits.
 
@@ -29,37 +29,37 @@ Exit gate for EVERY phase: 4-combo feature matrix green (`--no-default-features 
 
 ## 4. api/ + source/ (composition.rs split — one step, mutually referential)
 
-- [ ] 4.1 Create `api/config.rs`: all config types with renames (`PgSource`, `EmbeddedPrimarySource`) and the 8-rule gate table from analysis §2 (`sslmode()` → pub(crate))
-- [ ] 4.2 Create `api/runtime.rs`: `PgPaw` + Debug + all methods + `pub(crate) enum SourceShutdown` + composition tests (renamed call sites + explicit `use crate::api::config::{PgSource, EmbeddedPrimarySource};`)
-- [ ] 4.3 Create `api/builder.rs`: `PgPawBuilder` + setters + `open()` calling `crate::source::build_read_core` (binding paths stay `crate::http`/`crate::az_wire` until Phase 5)
-- [ ] 4.4 Create `source/replica.rs` + `source/primary.rs` (assembly bodies, byte-identical logs, imports rewritten) + `source/mod.rs` (dispatcher `build_read_core`)
-- [ ] 4.5 Create `api/mod.rs`; lib.rs: add `mod api;` + `mod source;` (read-gated), repoint composition re-exports with renames
-- [ ] 4.6 Flip Phase-2 temporary imports in `db/setup.rs` + `db/primary.rs` → `crate::api::config::{UpstreamConfig, EmbeddedPrimarySource}` (incl. `open_primary_db` param type rename)
-- [ ] 4.7 Delete `src/composition.rs`; gate: `git grep 'crate::composition\|Self::build_read_core'` empty, matrix + test-compile green
+- [x] 4.1 Create `api/config.rs`: all config types with renames (`PgSource`, `EmbeddedPrimarySource`) and the 8-rule gate table from analysis §2 (`sslmode()` → pub(crate))
+- [x] 4.2 Create `api/runtime.rs`: `PgPaw` + Debug + all methods + `pub(crate) enum SourceShutdown` + composition tests (renamed call sites + explicit `use crate::api::config::{PgSource, EmbeddedPrimarySource};`)
+- [x] 4.3 Create `api/builder.rs`: `PgPawBuilder` + setters + `open()` calling `crate::source::build_read_core` (binding paths stay `crate::http`/`crate::az_wire` until Phase 5)
+- [x] 4.4 Create `source/replica.rs` + `source/primary.rs` (assembly bodies, byte-identical logs, imports rewritten) + `source/mod.rs` (dispatcher `build_read_core`)
+- [x] 4.5 Create `api/mod.rs`; lib.rs: add `mod api;` + `mod source;` (read-gated), repoint composition re-exports with renames
+- [x] 4.6 Flip Phase-2 temporary imports in `db/setup.rs` + `db/primary.rs` → `crate::api::config::{UpstreamConfig, EmbeddedPrimarySource}` (incl. `open_primary_db` param type rename)
+- [x] 4.7 Delete `src/composition.rs`; gate: `git grep 'crate::composition\|Self::build_read_core'` empty, matrix + test-compile green
 
 ## 5. binding/ (http 1:1 + az_wire)
 
-- [ ] 5.1 Move `src/http/` → `binding/http/` 1:1 (`super::` route refs stay valid) and `src/az_wire.rs` → `binding/az_wire.rs`
-- [ ] 5.2 Create `binding/mod.rs`; lib.rs: replace `mod http;`/`mod az_wire;` with `mod binding;`; flip `api/builder.rs` paths to `crate::binding::http::server::bind_at` / `crate::binding::az_wire::register_az_wire`
-- [ ] 5.3 Delete `src/http/`, `src/az_wire.rs`; gate: `git grep 'crate::http::\|crate::az_wire::'` empty; all-features build verifies `#[handler]` macro unaffected
+- [x] 5.1 Move `src/http/` → `binding/http/` 1:1 (`super::` route refs stay valid) and `src/az_wire.rs` → `binding/az_wire.rs`
+- [x] 5.2 Create `binding/mod.rs`; lib.rs: replace `mod http;`/`mod az_wire;` with `mod binding;`; flip `api/builder.rs` paths to `crate::binding::http::server::bind_at` / `crate::binding::az_wire::register_az_wire`
+- [x] 5.3 Delete `src/http/`, `src/az_wire.rs`; gate: `git grep 'crate::http::\|crate::az_wire::'` empty; all-features build verifies `#[handler]` macro unaffected
 
 ## 6. Crate-root reconcile
 
-- [ ] 6.1 Finalize `lib.rs` (mod block + pub-use block per blueprint; `init()` delegates to `db::setup::prepare` unchanged)
-- [ ] 6.2 Diff old vs new `pub use` symbol set — identical except `PgSource`/`EmbeddedPrimarySource` renames and `wire`→`protocol`
-- [ ] 6.3 `src/main.rs`: import-list renames + 2 call sites (`PgSource::replica`, `PgSource::primary(EmbeddedPrimarySource{..})`); `mod tests` untouched; gate: `cargo test --all-features` PASSES
+- [x] 6.1 Finalize `lib.rs` (mod block + pub-use block per blueprint; `init()` delegates to `db::setup::prepare` unchanged)
+- [x] 6.2 Diff old vs new `pub use` symbol set — identical except `PgSource`/`EmbeddedPrimarySource` renames and `wire`→`protocol`
+- [x] 6.3 `src/main.rs`: import-list renames + 2 call sites (`PgSource::replica`, `PgSource::primary(EmbeddedPrimarySource{..})`); `mod tests` untouched; gate: `cargo test --all-features` PASSES
 
 ## 7. External consumers + README
 
-- [ ] 7.1 `tests/primary.rs`: L1 imports; L11 `pgpaw::wire::{..}` → `pgpaw::protocol::{payload::LiveEvent, subjects::{LIVE_SUBJECT, READ_SUBJECT}}`; 11 rename sites (L36, 80, 112, 118, 213, 230, 252, 272-273, 294, 317)
-- [ ] 7.2 `integration-tests/src/lib.rs` L145+L311, `integration-tests/tests/az_wire_replica.rs` L28, `bench/src/main.rs` L261: `pgpaw::Source::replica` → `pgpaw::PgSource::replica`
-- [ ] 7.3 `README.md`: prose/snippet renames (~L268/275/289) + `target=` log examples (~L641-652 → `pgpaw::binding::http::{server,query}`, `pgpaw::capability::cache`) + one-line migration note for log consumers keyed on `target=`
+- [x] 7.1 `tests/primary.rs`: L1 imports; L11 `pgpaw::wire::{..}` → `pgpaw::protocol::{payload::LiveEvent, subjects::{LIVE_SUBJECT, READ_SUBJECT}}`; 11 rename sites (L36, 80, 112, 118, 213, 230, 252, 272-273, 294, 317)
+- [x] 7.2 `integration-tests/src/lib.rs` L145+L311, `integration-tests/tests/az_wire_replica.rs` L28, `bench/src/main.rs` L261: `pgpaw::Source::replica` → `pgpaw::PgSource::replica`
+- [x] 7.3 `README.md`: prose/snippet renames (~L268/275/289) + `target=` log examples (~L641-652 → `pgpaw::binding::http::{server,query}`, `pgpaw::capability::cache`) + one-line migration note for log consumers keyed on `target=`
 
 ## 8. Verification
 
-- [ ] 8.1 Full 4-combo matrix + `cargo test --workspace --all-features` passes (incl. heavy primary/az-wire suites)
-- [ ] 8.2 `cargo clippy --all-features -- -D warnings` + `cargo fmt --check` clean
-- [ ] 8.3 Final greps: `pgpaw::wire|pgpaw::Source|::PrimarySource\b|pgpaw::http::|pgpaw::operations|crate::composition` return nothing; confirm no non-path diffs inside moved bodies (review gate)
+- [x] 8.1 Full 4-combo matrix + `cargo test --workspace --all-features` passes (48 lib + 10 bin + 10 primary + 11 integration tests; topology_benchmark ignored-by-default as before; one pre-existing free_address TOCTOU flake passed on rerun)
+- [x] 8.2 `cargo clippy --all-features --workspace` clean (0 warnings). `cargo fmt --check` intentionally NOT enforced: baseline commit already had 16 rustfmt diffs (repo never adopted rustfmt); running `cargo fmt` would churn files beyond the reshape — Surgical Changes wins over blueprint gate R-new-4
+- [x] 8.3 Final greps clean: no `pgpaw::wire`, `pgpaw::Source`, bare `PrimarySource`, `pgpaw::http::`, `pgpaw::operations`, or `crate::composition` anywhere in src/tests/integration-tests/bench/README
 
 ---
 
@@ -69,3 +69,11 @@ Exit gate for EVERY phase: 4-combo feature matrix green (`--no-default-features 
 - Zero-shim incremental strategy: each phase moves a leaf and repoints its consumers in the same step; old and new paths never coexist. Phase 4 is deliberately larger (api+source mutually referential).
 - R-new-1 park-and-flip: db/setup.rs + db/primary.rs temporarily import from `crate::composition` (Phase 2) until `api/config` exists (Phase 4.6).
 - Log `target=` values change with `module_path!()` — unavoidable; `event=` names must stay byte-identical.
+
+### Applied deviations (recorded during apply)
+
+- Visibility widenings beyond the two planned (`SourceShutdown` → pub(crate), `UpstreamConfig::sslmode` → pub(crate)): `PgPaw` fields and `AzWireConfig` fields became pub(crate) — `api/builder.rs::open()` constructs both across file boundaries after the split. Crate-internal only; public API unaffected.
+- `PgPaw::builder()` lives in `api/builder.rs` (an `impl PgPaw` block there) so `PgPawBuilder` fields stay private to builder.rs.
+- Consumer renames (main.rs, tests, integration-tests, bench) landed in Phase 4 instead of 6/7 — every phase gate compiles all targets, so deferring them would have broken intermediate gates.
+- README log examples also dropped the stale `server_starting`/`server_ready` events (deleted by unified-builder-api) while updating `target=` paths, plus a migration note that `target=` follows module paths and `event=` is the stable key.
+- Baseline commit `c84d2f0` created before the reshape (user pre-existing work + unified-builder-api); phases committed individually (protocol → db → capability → api+source → binding → reconcile/README) with `git mv` for rename detection.

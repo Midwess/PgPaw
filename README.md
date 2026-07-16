@@ -265,14 +265,14 @@ read-only SQL, authorization, cache, cursor, and live-query semantics. Mutating 
 
 ### Embedded primary
 
-Rust hosts compose PgPaw through one builder. `Source::primary` starts one writable embedded
+Rust hosts compose PgPaw through one builder. `PgSource::primary` starts one writable embedded
 PostgreSQL primary; `primary_dsn()` yields the DSN for a direct PostgreSQL pool. With the
 `az-wire` feature, `.az_wire(node, topology)` exposes the same read-only and realtime services
 over az-wire, for example as a listenerless child of a parent node:
 
 ```rust
 let pgpaw = PgPaw::builder()
-    .source(Source::primary(PrimarySource::embedded("./primary-data")))
+    .source(PgSource::primary(EmbeddedPrimarySource::embedded("./primary-data")))
     .auth(AuthConfig::jwt_secret(secret))
     .az_wire(
         az_wire::NodeBuilder::new("pgpaw").insecure_accept_declared_peer_identities(),
@@ -286,7 +286,7 @@ let pgpaw = PgPaw::builder()
 let dsn = pgpaw.primary_dsn().unwrap();
 ```
 
-The same builder serves the replica mode: `Source::replica(ReplicaSource { .. })` plus an optional
+The same builder serves the replica mode: `PgSource::replica(ReplicaSource { .. })` plus an optional
 `.http(HttpConfig { .. })` binding and any number of `.az_wire(..)` bindings — every binding reaches
 the same read/live capabilities. `pgpaw.wait().await` blocks until a binding stops; `shutdown()`
 stops bindings first, then the source, then closes the database. The direct pool remains the
@@ -637,19 +637,23 @@ scan counts, CDC startup, and readiness:
 
 ```text
 ts=2026-06-29T10:00:07.656Z level=INFO pid=65538 target=pgpaw event=command_start command=serve
-ts=2026-06-29T10:00:07.657Z level=INFO pid=65538 target=pgpaw event=server_starting bind_addr=127.0.0.1:8080 data_dir="./pgpaw-data" upstream_host=127.0.0.1 upstream_port=5432 upstream_database=myapp publication=pgpaw_pub slot=pgpaw_slot sslmode=disable auth_configured=false cors_origin=None
-ts=2026-06-29T10:00:08.120Z level=INFO pid=65538 target=pgpaw::http::server event=http_server_listening bind_addr=127.0.0.1:8080 url=http://127.0.0.1:8080
-ts=2026-06-29T10:00:08.121Z level=INFO pid=65538 target=pgpaw event=server_ready bind_addr=127.0.0.1:8080 health_path=/healthz query_path=/query
+ts=2026-06-29T10:00:07.657Z level=INFO pid=65538 target=pgpaw::source::replica event=preflight_start upstream_host=127.0.0.1 upstream_port=5432 upstream_user=postgres upstream_database=myapp publication=pgpaw_pub
+ts=2026-06-29T10:00:07.940Z level=INFO pid=65538 target=pgpaw::source::replica event=replication_started result=ok
+ts=2026-06-29T10:00:08.120Z level=INFO pid=65538 target=pgpaw::binding::http::server event=http_server_listening bind_addr=127.0.0.1:8080 url=http://127.0.0.1:8080
 ```
+
+The `target=` field is derived from the Rust module path and follows the module layout
+(`pgpaw::source::*`, `pgpaw::capability::*`, `pgpaw::binding::http::*`); key log lines off
+`event=` names, which are stable.
 
 Request and query logs show access events, query classification, public/private
 decision, snapshot cursor/version, cache hits, live subscriptions, CDC
 transactions, and health checks:
 
 ```text
-ts=2026-06-29T10:00:10.001Z level=INFO pid=65538 target=pgpaw::http::query event=query_classified fingerprint=9a4f tables=users live=false scope=public
-ts=2026-06-29T10:00:10.002Z level=INFO pid=65538 target=pgpaw::cache event=query_cache_get_or_compute result=hit key=9a4f:42 bytes=128
-ts=2026-06-29T10:00:10.003Z level=INFO pid=65538 target=pgpaw::http::query event=query_snapshot scope=public fingerprint=9a4f tables=users version=42 cursor=/q/9a4f/42 response=redirect snapshot_bytes=128
+ts=2026-06-29T10:00:10.001Z level=INFO pid=65538 target=pgpaw::binding::http::query event=query_classified fingerprint=9a4f tables=users live=false scope=public
+ts=2026-06-29T10:00:10.002Z level=INFO pid=65538 target=pgpaw::capability::cache event=query_cache_get_or_compute result=hit key=9a4f:42 bytes=128
+ts=2026-06-29T10:00:10.003Z level=INFO pid=65538 target=pgpaw::binding::http::query event=query_snapshot scope=public fingerprint=9a4f tables=users version=42 cursor=/q/9a4f/42 response=redirect snapshot_bytes=128
 ts=2026-06-29T10:00:10.004Z level=INFO pid=65538 target=actix_web::middleware::logger event=http_request remote_addr=127.0.0.1 request="POST /query HTTP/1.1" status=303 response_bytes=0 duration_ms=2 user_agent="curl/8.7.1"
 ```
 
