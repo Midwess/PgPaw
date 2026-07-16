@@ -72,7 +72,7 @@ Exit gate for EVERY phase: 4-combo feature matrix green (`--no-default-features 
 
 ### Applied deviations (recorded during apply)
 
-- Visibility widenings beyond the two planned (`SourceShutdown` → pub(crate), `UpstreamConfig::sslmode` → pub(crate)): `PgPaw` fields and `AzWireConfig` fields became pub(crate) — `api/builder.rs::open()` constructs both across file boundaries after the split. Crate-internal only; public API unaffected.
+- Visibility widenings beyond the two planned (`SourceShutdown` → pub(crate), `UpstreamConfig::sslmode` → pub(crate)): `PgPaw` fields, `AzWireConfig` fields, and `PgPaw::abort_open` became pub(crate); `build_replica_core`/`build_primary_core` became pub(crate) free fns (were private `Self::` methods) — all required by the cross-file split. Crate-internal only; public API unaffected.
 - `PgPaw::builder()` lives in `api/builder.rs` (an `impl PgPaw` block there) so `PgPawBuilder` fields stay private to builder.rs.
 - Consumer renames (main.rs, tests, integration-tests, bench) landed in Phase 4 instead of 6/7 — every phase gate compiles all targets, so deferring them would have broken intermediate gates.
 - README log examples also dropped the stale `server_starting`/`server_ready` events (deleted by unified-builder-api) while updating `target=` paths, plus a migration note that `target=` follows module paths and `event=` is the stable key.
