@@ -7,12 +7,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 #[cfg(feature = "read")]
-use crate::composition::PrimarySource;
+use crate::api::config::EmbeddedPrimarySource;
 use crate::error::{CacheError, LifecycleErrorKind};
 
 #[cfg(feature = "read")]
 pub(crate) async fn open_primary_db(
-    source: &PrimarySource,
+    source: &EmbeddedPrimarySource,
 ) -> Result<(PGlite, String), CacheError> {
     if source.max_connections == 0 || source.min_connections > source.max_connections {
         return Err(CacheError::Config(

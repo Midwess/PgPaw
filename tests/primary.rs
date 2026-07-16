@@ -1,4 +1,4 @@
-use pgpaw::{recover_primary, LifecycleErrorKind, PgPaw, PrimarySource, Source};
+use pgpaw::{recover_primary, LifecycleErrorKind, PgPaw, EmbeddedPrimarySource, PgSource};
 use tokio_postgres::NoTls;
 
 #[cfg(feature = "az-wire")]
@@ -35,7 +35,7 @@ async fn primary_serves_writable_postgres_over_tcp() {
 
     let database = "worldant_test";
     let pgpaw = PgPaw::builder()
-        .source(Source::primary(PrimarySource {
+        .source(PgSource::primary(EmbeddedPrimarySource {
             data_dir: dir,
             database: database.into(),
             listen_addresses: "127.0.0.1".into(),
@@ -79,7 +79,7 @@ async fn primary_rejects_invalid_connection_bounds_before_starting() {
         std::process::id()
     ));
     let result = PgPaw::builder()
-        .source(Source::primary(PrimarySource {
+        .source(PgSource::primary(EmbeddedPrimarySource {
             data_dir: dir.clone(),
             database: "postgres".into(),
             listen_addresses: String::new(),
@@ -111,13 +111,13 @@ async fn primary_reports_a_busy_data_directory() {
     ensure_runtime_dir();
     let dir = tempfile::tempdir().unwrap();
     let primary = PgPaw::builder()
-        .source(Source::primary(PrimarySource::embedded(dir.path())))
+        .source(PgSource::primary(EmbeddedPrimarySource::embedded(dir.path())))
         .open()
         .await
         .unwrap();
 
     let error = match PgPaw::builder()
-        .source(Source::primary(PrimarySource::embedded(dir.path())))
+        .source(PgSource::primary(EmbeddedPrimarySource::embedded(dir.path())))
         .open()
         .await
     {
@@ -212,7 +212,7 @@ async fn child_startup_failure_is_topology_and_rolls_back_the_primary() {
     ensure_runtime_dir();
     let dir = tempfile::tempdir().unwrap();
     let error = PgPaw::builder()
-        .source(Source::primary(PrimarySource::embedded(
+        .source(PgSource::primary(EmbeddedPrimarySource::embedded(
             dir.path().join("primary"),
         )))
         .az_wire(
@@ -229,7 +229,7 @@ async fn child_startup_failure_is_topology_and_rolls_back_the_primary() {
     assert_eq!(error.lifecycle_kind(), Some(LifecycleErrorKind::Topology));
 
     let reopened = PgPaw::builder()
-        .source(Source::primary(PrimarySource::embedded(
+        .source(PgSource::primary(EmbeddedPrimarySource::embedded(
             dir.path().join("primary"),
         )))
         .open()
@@ -251,7 +251,7 @@ async fn interrupted_wait_still_shuts_down_a_parent_linked_child() {
         .unwrap();
     let hosting = parent.host_unix(az_wire_transport::unix::UnixListener::bind(&socket).unwrap());
     let mut pgpaw = PgPaw::builder()
-        .source(Source::primary(PrimarySource::embedded(
+        .source(PgSource::primary(EmbeddedPrimarySource::embedded(
             dir.path().join("primary"),
         )))
         .az_wire(
@@ -271,8 +271,8 @@ async fn interrupted_wait_still_shuts_down_a_parent_linked_child() {
 }
 
 #[cfg(all(feature = "az-wire", unix))]
-fn configured_primary(data_dir: std::path::PathBuf, port: u16) -> PrimarySource {
-    PrimarySource {
+fn configured_primary(data_dir: std::path::PathBuf, port: u16) -> EmbeddedPrimarySource {
+    EmbeddedPrimarySource {
         data_dir,
         database: "configured".into(),
         listen_addresses: "127.0.0.1".into(),
@@ -293,7 +293,7 @@ async fn embedded_child_reads_configured_database_and_observes_external_commits(
     let external_dsn = format!("postgres://postgres@127.0.0.1:{port}/configured");
 
     let bootstrap = PgPaw::builder()
-        .source(Source::primary(configured_primary(primary_dir.clone(), port)))
+        .source(PgSource::primary(configured_primary(primary_dir.clone(), port)))
         .open()
         .await
         .unwrap();
@@ -316,7 +316,7 @@ async fn embedded_child_reads_configured_database_and_observes_external_commits(
         .unwrap();
     let hosting = parent.host_unix(az_wire_transport::unix::UnixListener::bind(&socket).unwrap());
     let pgpaw = PgPaw::builder()
-        .source(Source::primary(configured_primary(primary_dir, port)))
+        .source(PgSource::primary(configured_primary(primary_dir, port)))
         .auth(AuthConfig::jwt_secret("embedded-secret"))
         .az_wire(
             az_wire::NodeBuilder::new("pgpaw").insecure_accept_declared_peer_identities(),

@@ -1,6 +1,6 @@
 # Tasks: module-architecture-reshape
 
-## Progress: [3/33]
+## Progress: [10/33]
 
 Exit gate for EVERY phase: 4-combo feature matrix green (`--no-default-features --features read` · default · `--no-default-features --features az-wire` · `--all-features`), plus `cargo test --all-features --no-run` after phases 3 and 4. Moves are copy-paste + path/rename edits only — no body changes, no comment additions, no log-line edits.
 
@@ -12,20 +12,20 @@ Exit gate for EVERY phase: 4-combo feature matrix green (`--no-default-features 
 
 ## 2. db/ (primary, shadow, setup)
 
-- [ ] 2.1 Create `src/db/shadow.rs` and `src/db/setup.rs` (verbatim; setup keeps TEMPORARY `crate::composition::UpstreamConfig` import — flipped in 4.6)
-- [ ] 2.2 Create `src/db/primary.rs` (verbatim; keep TEMPORARY `crate::composition::PrimarySource` import; preserve exact ungated/gated split: recovery helpers UNGATED, rest read-gated, unix/non-unix splits intact)
-- [ ] 2.3 Create `src/db/mod.rs` (child decls + gates); lib.rs: add `mod db;`, repoint `recover_primary`/`open_shadow`/`ShadowHandle` re-exports
-- [ ] 2.4 Repoint `src/composition.rs` calls (`crate::primary::*`, `crate::setup::*` → `crate::db::*`); delete `src/primary.rs`, `src/shadow.rs`, `src/setup.rs`; gate: read-only combo still exposes ungated recovery
+- [x] 2.1 Create `src/db/shadow.rs` and `src/db/setup.rs` (verbatim; setup keeps TEMPORARY `crate::composition::UpstreamConfig` import — flipped in 4.6)
+- [x] 2.2 Create `src/db/primary.rs` (verbatim; keep TEMPORARY `crate::composition::PrimarySource` import; preserve exact ungated/gated split: recovery helpers UNGATED, rest read-gated, unix/non-unix splits intact)
+- [x] 2.3 Create `src/db/mod.rs` (child decls + gates); lib.rs: add `mod db;`, repoint `recover_primary`/`open_shadow`/`ShadowHandle` re-exports
+- [x] 2.4 Repoint `src/composition.rs` calls (`crate::primary::*`, `crate::setup::*` → `crate::db::*`); delete `src/primary.rs`, `src/shadow.rs`, `src/setup.rs`; gate: read-only combo still exposes ungated recovery
 
 ## 3. capability/ (10 whole-file moves)
 
-- [ ] 3.1 Move classify, diff, rows, schema, cache, version → `capability/*` (sibling imports → `crate::capability::*`)
-- [ ] 3.2 Move cdc, live → `capability/*` (do NOT dedupe the duplicated `change_table` in live/version)
-- [ ] 3.3 Move auth → `capability/auth.rs` (`crate::operations::ReadOperations` → `crate::capability::read::ReadOperations`)
-- [ ] 3.4 Move operations → `capability/read.rs` — line-by-line gate preservation: `Replica` import/field/`HealthStatus`/`new`/`health` server-gated; `primary`'s inline `#[cfg(feature = "server")] replica: None,`; BOTH `is_private` complementary `#[cfg(server)]`/`#[cfg(not(server))]` arms
-- [ ] 3.5 Create `capability/mod.rs`; lib.rs: add `mod capability;` (read-gated), repoint `AuthConfig`/`ReadOperations`/`PreparedRead`/`HealthStatus` re-exports, remove 10 old mod lines
-- [ ] 3.6 Repoint remaining internal consumers: composition.rs, az_wire.rs, http/{server,query,health}.rs (+query tests), src/tests/mod.rs (4 imports)
-- [ ] 3.7 Delete the 10 old files; gate: stale-path grep empty + `cargo test --all-features --no-run` green
+- [x] 3.1 Move classify, diff, rows, schema, cache, version → `capability/*` (sibling imports → `crate::capability::*`)
+- [x] 3.2 Move cdc, live → `capability/*` (do NOT dedupe the duplicated `change_table` in live/version)
+- [x] 3.3 Move auth → `capability/auth.rs` (`crate::operations::ReadOperations` → `crate::capability::read::ReadOperations`)
+- [x] 3.4 Move operations → `capability/read.rs` — line-by-line gate preservation: `Replica` import/field/`HealthStatus`/`new`/`health` server-gated; `primary`'s inline `#[cfg(feature = "server")] replica: None,`; BOTH `is_private` complementary `#[cfg(server)]`/`#[cfg(not(server))]` arms
+- [x] 3.5 Create `capability/mod.rs`; lib.rs: add `mod capability;` (read-gated), repoint `AuthConfig`/`ReadOperations`/`PreparedRead`/`HealthStatus` re-exports, remove 10 old mod lines
+- [x] 3.6 Repoint remaining internal consumers: composition.rs, az_wire.rs, http/{server,query,health}.rs (+query tests), src/tests/mod.rs (4 imports)
+- [x] 3.7 Delete the 10 old files; gate: stale-path grep empty + `cargo test --all-features --no-run` green
 
 ## 4. api/ + source/ (composition.rs split — one step, mutually referential)
 

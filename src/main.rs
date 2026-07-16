@@ -8,8 +8,8 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 use pgpaw::{
-    init, AuthConfig, CacheConfig, CacheError, HttpConfig, PgPaw, PgPawBuilder, PrimarySource,
-    ReplicaSource, Source, UpstreamConfig,
+    init, AuthConfig, CacheConfig, CacheError, HttpConfig, PgPaw, PgPawBuilder, EmbeddedPrimarySource,
+    ReplicaSource, PgSource, UpstreamConfig,
 };
 
 #[derive(Parser)]
@@ -234,7 +234,7 @@ impl ServeOptions {
 
     fn builder(&self) -> Result<PgPawBuilder, CacheError> {
         let builder = PgPaw::builder()
-            .source(Source::replica(self.source()))
+            .source(PgSource::replica(self.source()))
             .cache(CacheConfig {
                 max_bytes: self.cache_size_bytes,
             })
@@ -258,7 +258,7 @@ impl ServeOptions {
 
 impl PrimaryOptions {
     fn builder(&self) -> PgPawBuilder {
-        let builder = PgPaw::builder().source(Source::primary(PrimarySource {
+        let builder = PgPaw::builder().source(PgSource::primary(EmbeddedPrimarySource {
             data_dir: self.data_dir.clone(),
             database: self.database.clone(),
             listen_addresses: self.primary_listen.clone(),

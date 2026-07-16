@@ -2,7 +2,7 @@ use std::io::{self, Write};
 
 use tokio_postgres::{Client, Config, NoTls};
 
-use crate::composition::UpstreamConfig;
+use crate::api::config::UpstreamConfig;
 use crate::error::CacheError;
 
 pub async fn prepare(upstream: &UpstreamConfig, publication: &str) -> Result<(), CacheError> {

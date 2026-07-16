@@ -142,7 +142,7 @@ impl Server {
         let handle = std::thread::spawn(move || {
             actix_web::rt::System::new().block_on(async move {
                 let mut pgpaw = pgpaw::PgPaw::builder()
-                    .source(pgpaw::Source::replica(source))
+                    .source(pgpaw::PgSource::replica(source))
                     .cache(pgpaw::CacheConfig {
                         max_bytes: 64 * 1024 * 1024,
                     })
@@ -309,7 +309,7 @@ pub async fn run_and_capture_error(
     let port = free_port();
     let addr: std::net::SocketAddr = format!("127.0.0.1:{port}").parse().expect("http addr");
     pgpaw::PgPaw::builder()
-        .source(pgpaw::Source::replica(pgpaw::ReplicaSource {
+        .source(pgpaw::PgSource::replica(pgpaw::ReplicaSource {
             upstream: pgpaw::UpstreamConfig {
                 host: up.host.clone(),
                 port: up.port,

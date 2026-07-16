@@ -258,7 +258,7 @@ fn spawn_pgpaw(host: String, port: u16, user: String, pass: String, http_port: u
         let addr = std::net::SocketAddr::from(([127, 0, 0, 1], http_port));
         let outcome = actix_web::rt::System::new().block_on(async move {
             let mut pgpaw = pgpaw::PgPaw::builder()
-                .source(pgpaw::Source::replica(source))
+                .source(pgpaw::PgSource::replica(source))
                 .cache(pgpaw::CacheConfig {
                     max_bytes: 256 * 1024 * 1024,
                 })

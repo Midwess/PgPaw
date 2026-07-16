@@ -25,7 +25,7 @@ async fn replica_with_az_wire_host_binds_serves_and_releases() {
     host.webtransport = false;
 
     let pgpaw = pgpaw::PgPaw::builder()
-        .source(pgpaw::Source::replica(pgpaw::ReplicaSource {
+        .source(pgpaw::PgSource::replica(pgpaw::ReplicaSource {
             upstream: pgpaw::UpstreamConfig {
                 host: up.host.clone(),
                 port: up.port,
