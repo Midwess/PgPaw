@@ -12,7 +12,7 @@ use crate::cdc::CdcBridge;
 use crate::error::{CacheError, LifecycleErrorKind};
 use crate::live::LiveHub;
 use crate::operations::ReadOperations;
-use crate::primary::PrimaryObserver;
+use crate::db::primary::PrimaryObserver;
 use crate::version::VersionIndex;
 
 #[cfg(feature = "server")]
@@ -270,7 +270,7 @@ impl PgPawBuilder {
             source.upstream.database,
             source.publication,
         );
-        crate::setup::preflight(&source.upstream, &source.publication).await?;
+        crate::db::setup::preflight(&source.upstream, &source.publication).await?;
         log::info!("event=preflight_complete result=ok");
 
         let options = MultiProcessOptions {
@@ -365,7 +365,7 @@ impl PgPawBuilder {
         cache: CacheConfig,
         auth: AuthConfig,
     ) -> Result<(ReadOperations, PGlite, Option<String>, SourceShutdown), CacheError> {
-        let (db, dsn) = crate::primary::open_primary_db(&source).await?;
+        let (db, dsn) = crate::db::primary::open_primary_db(&source).await?;
         let assembled = async {
             let (tables, pk, full) = crate::schema::scan_schema(&db).await?;
             let versions = VersionIndex::new(pk.clone(), full);

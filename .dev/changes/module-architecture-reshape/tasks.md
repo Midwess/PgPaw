@@ -1,14 +1,14 @@
 # Tasks: module-architecture-reshape
 
-## Progress: [0/33]
+## Progress: [3/33]
 
 Exit gate for EVERY phase: 4-combo feature matrix green (`--no-default-features --features read` · default · `--no-default-features --features az-wire` · `--all-features`), plus `cargo test --all-features --no-run` after phases 3 and 4. Moves are copy-paste + path/rename edits only — no body changes, no comment additions, no log-line edits.
 
 ## 1. protocol/ (leaf split of wire.rs)
 
-- [ ] 1.1 Create `src/protocol/subjects.rs` (the 3 `*_SUBJECT` consts) and `src/protocol/payload.rs` (all payload types + wire.rs test mod, schemars derives byte-identical)
-- [ ] 1.2 Create `src/protocol/mod.rs` (`pub mod payload; pub mod subjects;`); lib.rs: `pub mod wire` → `pub mod protocol` (read-gated)
-- [ ] 1.3 Repoint `src/az_wire.rs` wire imports to `crate::protocol::{payload, subjects}`; delete `src/wire.rs`; gate: `git grep 'crate::wire'` empty
+- [x] 1.1 Create `src/protocol/subjects.rs` (the 3 `*_SUBJECT` consts) and `src/protocol/payload.rs` (all payload types + wire.rs test mod, schemars derives byte-identical)
+- [x] 1.2 Create `src/protocol/mod.rs` (`pub mod payload; pub mod subjects;`); lib.rs: `pub mod wire` → `pub mod protocol` (read-gated)
+- [x] 1.3 Repoint `src/az_wire.rs` wire imports to `crate::protocol::{payload, subjects}`; delete `src/wire.rs`; gate: `git grep 'crate::wire'` empty (also pulled tests/primary.rs wire-import fix forward from 7.1 to keep test compile green)
 
 ## 2. db/ (primary, shadow, setup)
 

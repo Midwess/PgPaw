@@ -10,6 +10,7 @@ mod cdc;
 mod classify;
 #[cfg(feature = "read")]
 mod composition;
+mod db;
 #[cfg(feature = "read")]
 mod diff;
 mod error;
@@ -19,14 +20,10 @@ mod http;
 mod live;
 #[cfg(feature = "read")]
 mod operations;
-mod primary;
 #[cfg(feature = "read")]
 mod rows;
 #[cfg(feature = "read")]
 mod schema;
-#[cfg(feature = "server")]
-mod setup;
-mod shadow;
 #[cfg(feature = "read")]
 mod version;
 #[cfg(feature = "read")]
@@ -48,10 +45,10 @@ pub use error::{CacheError, LifecycleErrorKind};
 pub use operations::HealthStatus;
 #[cfg(feature = "read")]
 pub use operations::{PreparedRead, ReadOperations};
-pub use primary::recover_primary;
-pub use shadow::{open_shadow, ShadowHandle};
+pub use db::primary::recover_primary;
+pub use db::shadow::{open_shadow, ShadowHandle};
 
 #[cfg(feature = "server")]
 pub async fn init(upstream: UpstreamConfig, publication: &str) -> Result<(), CacheError> {
-    setup::prepare(&upstream, publication).await
+    db::setup::prepare(&upstream, publication).await
 }
