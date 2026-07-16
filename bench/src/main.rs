@@ -241,32 +241,36 @@ async fn seed(host: &str, port: u16, user: &str, pass: &str) -> Result<()> {
 
 fn spawn_pgpaw(host: String, port: u16, user: String, pass: String, http_port: u16) {
     std::thread::spawn(move || {
-        let config = pgpaw::ServerConfig {
-            bind_addr: format!("127.0.0.1:{http_port}"),
-            #[cfg(feature = "az-wire")]
-            az_wire_addr: None,
-            #[cfg(feature = "az-wire")]
-            az_wire_node: "pgpaw".into(),
-            data_dir: std::env::temp_dir().join(format!("pgpaw-bench-{}", std::process::id())),
-            max_connections: 8,
-            cache_size_bytes: 256 * 1024 * 1024,
-            jwt_secret: None,
-            jwt_public_key: None,
-            jwt_jwks_url: None,
-            jwt_role_claim: "role".into(),
-            cors_origin: None,
+        let source = pgpaw::ReplicaSource {
             upstream: pgpaw::UpstreamConfig {
                 host,
                 port,
                 user,
                 password: pass,
                 database: "bench".into(),
-                publication: "pgpaw_pub".into(),
-                slot: "pgpaw_bench_slot".into(),
                 sslmode: "disable".into(),
             },
+            data_dir: std::env::temp_dir().join(format!("pgpaw-bench-{}", std::process::id())),
+            publication: "pgpaw_pub".into(),
+            slot: "pgpaw_bench_slot".into(),
+            max_connections: 8,
         };
-        if let Err(error) = actix_web::rt::System::new().block_on(pgpaw::run(config)) {
+        let addr = std::net::SocketAddr::from(([127, 0, 0, 1], http_port));
+        let outcome = actix_web::rt::System::new().block_on(async move {
+            let mut pgpaw = pgpaw::PgPaw::builder()
+                .source(pgpaw::Source::replica(source))
+                .cache(pgpaw::CacheConfig {
+                    max_bytes: 256 * 1024 * 1024,
+                })
+                .http(pgpaw::HttpConfig {
+                    addr,
+                    cors_origin: None,
+                })
+                .open()
+                .await?;
+            pgpaw.wait().await
+        });
+        if let Err(error) = outcome {
             eprintln!("[bench] pgpaw exited: {error}");
         }
     });

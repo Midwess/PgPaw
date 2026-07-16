@@ -5,7 +5,7 @@ edition = "2021"
 publish = false
 
 [features]
-az-wire = ["pgpaw/az-wire"]
+az-wire = ["pgpaw/az-wire", "dep:az-wire"]
 
 [lib]
 name = "harness"
@@ -13,6 +13,7 @@ path = "src/lib.rs"
 
 [dependencies]
 pgpaw = { path = ".." }
+az-wire = { path = "../az-wire/crates/az-wire", optional = true }
 pglite-rs = { version = "0.2.7", features = ["replica", "multiple-process"] }
 actix-web = "4"
 postgresql_embedded = "0.18"

@@ -1,13 +1,15 @@
 #[cfg(feature = "read")]
 mod auth;
+#[cfg(feature = "az-wire")]
+mod az_wire;
 #[cfg(feature = "read")]
 mod cache;
 #[cfg(feature = "read")]
 mod cdc;
 #[cfg(feature = "read")]
 mod classify;
-#[cfg(feature = "server")]
-mod di;
+#[cfg(feature = "read")]
+mod composition;
 #[cfg(feature = "read")]
 mod diff;
 mod error;
@@ -17,16 +19,14 @@ mod http;
 mod live;
 #[cfg(feature = "read")]
 mod operations;
-#[cfg(feature = "az-wire")]
-mod az_wire;
 mod primary;
 #[cfg(feature = "read")]
 mod rows;
+#[cfg(feature = "read")]
+mod schema;
 #[cfg(feature = "server")]
 mod setup;
 mod shadow;
-#[cfg(feature = "read")]
-mod schema;
 #[cfg(feature = "read")]
 mod version;
 #[cfg(feature = "read")]
@@ -35,151 +35,23 @@ pub mod wire;
 #[cfg(all(test, feature = "server"))]
 mod tests;
 
+#[cfg(feature = "read")]
+pub use auth::AuthConfig;
+#[cfg(feature = "az-wire")]
+pub use composition::AzWireConfig;
 #[cfg(feature = "server")]
-pub use di::{Di, ServerConfig, UpstreamConfig};
+pub use composition::{HttpConfig, ReplicaSource, UpstreamConfig};
+#[cfg(feature = "read")]
+pub use composition::{CacheConfig, PgPaw, PgPawBuilder, PrimarySource, Source};
+pub use error::{CacheError, LifecycleErrorKind};
+#[cfg(feature = "server")]
+pub use operations::HealthStatus;
 #[cfg(feature = "read")]
 pub use operations::{PreparedRead, ReadOperations};
-#[cfg(feature = "az-wire")]
-pub use az_wire::register_az_wire;
-pub use error::CacheError;
-#[cfg(feature = "az-wire")]
-pub use primary::EmbeddedVerifierConfig;
-pub use primary::{open_primary, run_primary, PrimaryConfig, PrimaryHandle};
+pub use primary::recover_primary;
 pub use shadow::{open_shadow, ShadowHandle};
 
 #[cfg(feature = "server")]
-pub async fn run(config: ServerConfig) -> Result<(), CacheError> {
-    run_until(config, shutdown_signal()).await
-}
-
-#[cfg(feature = "server")]
-pub async fn run_until<F>(config: ServerConfig, shutdown: F) -> Result<(), CacheError>
-where
-    F: std::future::Future<Output = Result<(), CacheError>>,
-{
-    #[cfg(feature = "az-wire")]
-    let az_wire = config
-        .az_wire_addr
-        .map(|address| (address, config.az_wire_node.clone()));
-    log::info!(
-        "event=server_starting bind_addr={} data_dir={:?} max_connections={} cache_size_bytes={} upstream_host={} upstream_port={} upstream_user={} upstream_database={} publication={} slot={} sslmode={} auth_configured={} cors_origin={:?}",
-        config.bind_addr,
-        config.data_dir,
-        config.max_connections,
-        config.cache_size_bytes,
-        config.upstream.host,
-        config.upstream.port,
-        config.upstream.user,
-        config.upstream.database,
-        config.upstream.publication,
-        config.upstream.slot,
-        config.upstream.sslmode,
-        config.jwt_secret.is_some() || config.jwt_public_key.is_some() || config.jwt_jwks_url.is_some(),
-        config.cors_origin,
-    );
-    Di::init(config).await?;
-    let server = match http::server::bind() {
-        Ok(server) => server,
-        Err(error) => {
-            Di::instance().shutdown().await;
-            return Err(error);
-        }
-    };
-    #[cfg(feature = "az-wire")]
-    let mut topology = match az_wire {
-        Some((address, node)) => {
-            let builder = ::az_wire::NodeBuilder::new(&node)
-                .insecure_accept_declared_peer_identities();
-            let started = match register_az_wire(builder, Di::instance().operations().clone()).build()
-            {
-                Ok(node) => node
-                    .start_topology(::az_wire::TopologyConfig::host(::az_wire::HostConfig::new(address)))
-                    .await
-                    .map_err(|error| CacheError::Config(error.to_string())),
-                Err(error) => Err(CacheError::Config(error.to_string())),
-            };
-            match started {
-                Ok(topology) => Some(topology),
-                Err(error) => {
-                    let handle = server.handle();
-                    handle.stop(true).await;
-                    server.await.map_err(CacheError::Io)?;
-                    Di::instance().shutdown().await;
-                    return Err(error);
-                }
-            }
-        }
-        None => None,
-    };
-    log::info!(
-        "event=server_ready bind_addr={} health_path=/healthz query_path=/query",
-        Di::instance().bind_addr()
-    );
-    let handle = server.handle();
-    let mut server = Box::pin(server);
-    let signal = shutdown;
-    tokio::pin!(signal);
-    #[cfg(feature = "az-wire")]
-    let (result, http_complete) = match &mut topology {
-        Some(topology) => tokio::select! {
-            biased;
-            result = &mut signal => (result, false),
-            result = &mut server => (result.map_err(CacheError::Io), true),
-            result = topology.wait() => (result.map_err(|error| CacheError::Config(error.to_string())), false),
-        },
-        None => tokio::select! {
-            biased;
-            result = &mut signal => (result, false),
-            result = &mut server => (result.map_err(CacheError::Io), true),
-        },
-    };
-    #[cfg(not(feature = "az-wire"))]
-    let (result, http_complete) = tokio::select! {
-        biased;
-        result = &mut signal => (result, false),
-        result = &mut server => (result.map_err(CacheError::Io), true),
-    };
-    match &result {
-        Ok(()) => log::info!("event=server_stopped result=ok"),
-        Err(error) => log::error!(
-            "event=server_stopped result=error error={:?}",
-            error.to_string()
-        ),
-    }
-    log::info!("event=server_shutdown_start");
-    handle.stop(true).await;
-    if !http_complete {
-        server.await.map_err(CacheError::Io)?;
-    }
-    #[cfg(feature = "az-wire")]
-    if let Some(topology) = topology {
-        topology
-            .shutdown()
-            .await
-            .map_err(|error| CacheError::Config(error.to_string()))?;
-    }
-    Di::instance().shutdown().await;
-    log::info!("event=server_shutdown_complete");
-    result
-}
-
-#[cfg(all(feature = "server", unix))]
-async fn shutdown_signal() -> Result<(), CacheError> {
-    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-        .map_err(CacheError::Io)?;
-    tokio::select! {
-        biased;
-        result = tokio::signal::ctrl_c() => result.map_err(CacheError::Io),
-        _ = terminate.recv() => Ok(()),
-    }
-}
-
-#[cfg(all(feature = "server", not(unix)))]
-async fn shutdown_signal() -> Result<(), CacheError> {
-    tokio::signal::ctrl_c().await.map_err(CacheError::Io)
-}
-
-#[cfg(feature = "server")]
-pub async fn init(upstream: UpstreamConfig) -> Result<(), CacheError> {
-    setup::prepare(&upstream).await
+pub async fn init(upstream: UpstreamConfig, publication: &str) -> Result<(), CacheError> {
+    setup::prepare(&upstream, publication).await
 }

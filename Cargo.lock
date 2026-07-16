@@ -478,6 +478,7 @@ version = "0.1.0"
 dependencies = [
  "az-wire-macros",
  "az-wire-server",
+ "http 1.4.2",
 ]
 
 [[package]]
@@ -487,6 +488,8 @@ dependencies = [
  "az-wire-core",
  "az-wire-runtime",
  "az-wire-transport",
+ "bytes",
+ "http 1.4.2",
  "js-sys",
  "n0-future",
  "serde_json",
@@ -501,6 +504,7 @@ name = "az-wire-core"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "http 1.4.2",
  "schemars",
  "serde",
  "serde_json",
@@ -525,6 +529,7 @@ dependencies = [
  "az-wire-transport",
  "bytes",
  "futures-util",
+ "http 1.4.2",
  "n0-future",
  "serde_json",
  "thiserror 2.0.18",
@@ -545,6 +550,9 @@ dependencies = [
  "bytes",
  "futures-util",
  "http 1.4.2",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "parking_lot 0.12.5",
  "schemars",
  "serde",
@@ -559,6 +567,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "bytes",
+ "fs2",
  "futures-util",
  "thiserror 2.0.18",
  "tokio",
@@ -1221,6 +1230,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fs2"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
+dependencies = [
+ "libc",
+ "winapi",
+]
+
+[[package]]
 name = "fs_extra"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1785,6 +1804,7 @@ name = "integration-tests"
 version = "0.0.0"
 dependencies = [
  "actix-web",
+ "az-wire",
  "jsonwebtoken",
  "pglite-rs",
  "pgpaw",

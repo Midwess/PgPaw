@@ -9,7 +9,7 @@ use crate::wire::{
     CURSOR_SUBJECT, LIVE_SUBJECT, READ_SUBJECT,
 };
 
-pub fn register_az_wire(builder: NodeBuilder, operations: ReadOperations) -> NodeBuilder {
+pub(crate) fn register_az_wire(builder: NodeBuilder, operations: ReadOperations) -> NodeBuilder {
     use az_wire::Handler;
 
     builder
@@ -38,8 +38,7 @@ async fn read(
             .await
             .and_then(parse_rows)
             .map_err(handler_error)?;
-        let (_, version, _) = operations
-            .materialize_version(&prepared);
+        let (_, version, _) = operations.materialize_version(&prepared);
         Ok(Reply::new(ReadResponse::Private { rows, version }))
     } else {
         let (hash, version, _) = operations
@@ -80,8 +79,13 @@ async fn live(
         .prepare(&request.sql, principal)
         .await
         .map_err(handler_error)?;
-    let subscription = operations.subscribe(prepared).await.map_err(handler_error)?;
-    Ok(Streaming::new(subscription.map(|event| decode_event(&event))))
+    let subscription = operations
+        .subscribe(prepared)
+        .await
+        .map_err(handler_error)?;
+    Ok(Streaming::new(
+        subscription.map(|event| decode_event(&event)),
+    ))
 }
 
 fn parse_rows(body: String) -> Result<Value, CacheError> {
@@ -89,32 +93,66 @@ fn parse_rows(body: String) -> Result<Value, CacheError> {
 }
 
 fn decode_event(event: &str) -> Result<LiveEvent, HandlerError> {
-    let value: Value = serde_json::from_str(event.trim().strip_prefix("data: ").unwrap_or(event.trim()))
-        .map_err(|error| HandlerError::new(ErrorCode::Internal, error.to_string()))?;
+    let value: Value =
+        serde_json::from_str(event.trim().strip_prefix("data: ").unwrap_or(event.trim()))
+            .map_err(|error| HandlerError::new(ErrorCode::Internal, error.to_string()))?;
     if value.get("type").and_then(Value::as_str) == Some("snapshot") {
-        let version = value.get("version").and_then(Value::as_u64).unwrap_or_default();
+        let version = value
+            .get("version")
+            .and_then(Value::as_u64)
+            .unwrap_or_default();
         return Ok(LiveEvent::Snapshot {
             rows: value.get("rows").cloned(),
-            hash: value.get("url").and_then(Value::as_str).and_then(|url| url.split('/').nth(2)).map(str::to_string),
+            hash: value
+                .get("url")
+                .and_then(Value::as_str)
+                .and_then(|url| url.split('/').nth(2))
+                .map(str::to_string),
             version,
         });
     }
     match value.get("op").and_then(Value::as_str) {
-        Some("insert") => Ok(LiveEvent::Insert { key: string(&value, "key")?, row: value["row"].clone(), txid: number(&value, "txid")? }),
-        Some("update") => Ok(LiveEvent::Update { key: string(&value, "key")?, row: value["row"].clone(), txid: number(&value, "txid")? }),
-        Some("delete") => Ok(LiveEvent::Delete { key: string(&value, "key")?, row: value["row"].clone(), txid: number(&value, "txid")? }),
-        Some("up-to-date") => Ok(LiveEvent::UpToDate { txid: number(&value, "txid")? }),
+        Some("insert") => Ok(LiveEvent::Insert {
+            key: string(&value, "key")?,
+            row: value["row"].clone(),
+            txid: number(&value, "txid")?,
+        }),
+        Some("update") => Ok(LiveEvent::Update {
+            key: string(&value, "key")?,
+            row: value["row"].clone(),
+            txid: number(&value, "txid")?,
+        }),
+        Some("delete") => Ok(LiveEvent::Delete {
+            key: string(&value, "key")?,
+            row: value["row"].clone(),
+            txid: number(&value, "txid")?,
+        }),
+        Some("up-to-date") => Ok(LiveEvent::UpToDate {
+            txid: number(&value, "txid")?,
+        }),
         Some("reset") => Ok(LiveEvent::Reset),
         _ => Err(HandlerError::new(ErrorCode::Internal, "invalid live event")),
     }
 }
 
 fn string(value: &Value, field: &str) -> Result<String, HandlerError> {
-    value.get(field).and_then(Value::as_str).map(str::to_string).ok_or_else(|| HandlerError::new(ErrorCode::Internal, format!("live event missing {field}")))
+    value
+        .get(field)
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| {
+            HandlerError::new(ErrorCode::Internal, format!("live event missing {field}"))
+        })
 }
 
 fn number(value: &Value, field: &str) -> Result<u32, HandlerError> {
-    value.get(field).and_then(Value::as_u64).and_then(|value| value.try_into().ok()).ok_or_else(|| HandlerError::new(ErrorCode::Internal, format!("live event missing {field}")))
+    value
+        .get(field)
+        .and_then(Value::as_u64)
+        .and_then(|value| value.try_into().ok())
+        .ok_or_else(|| {
+            HandlerError::new(ErrorCode::Internal, format!("live event missing {field}"))
+        })
 }
 
 fn handler_error(error: CacheError) -> HandlerError {
@@ -130,32 +168,45 @@ fn handler_error(error: CacheError) -> HandlerError {
 #[cfg(test)]
 mod tests {
     use super::{decode_event, handler_error};
-    use az_wire::{ErrorCode, HostConfig, NodeBuilder, TopologyConfig};
     use crate::error::CacheError;
     use crate::wire::LiveEvent;
+    use az_wire::{ErrorCode, HostConfig, NodeBuilder, TopologyConfig};
     use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
-    #[cfg(all(feature = "server", unix))]
-    use std::process::Command;
-    #[cfg(all(feature = "server", unix))]
-    use std::time::Duration;
 
     #[test]
     fn decodes_sse_delta_as_typed_event() {
-        let event = decode_event("data: {\"op\":\"insert\",\"key\":\"1\",\"row\":{\"id\":1},\"txid\":7}\n\n").unwrap();
+        let event = decode_event(
+            "data: {\"op\":\"insert\",\"key\":\"1\",\"row\":{\"id\":1},\"txid\":7}\n\n",
+        )
+        .unwrap();
         assert!(matches!(event, LiveEvent::Insert { txid: 7, .. }));
     }
 
     #[test]
     fn shared_errors_keep_wire_semantics() {
-        assert_eq!(handler_error(CacheError::Rejected("write".into())).code, ErrorCode::InvalidInput);
-        assert_eq!(handler_error(CacheError::Unauthorized("token".into())).code, ErrorCode::Unauthorized);
-        assert_eq!(handler_error(CacheError::Forbidden("rls".into())).code, ErrorCode::Unauthorized);
-        assert_eq!(handler_error(CacheError::Halted("replica".into())).code, ErrorCode::Busy);
+        assert_eq!(
+            handler_error(CacheError::Rejected("write".into())).code,
+            ErrorCode::InvalidInput
+        );
+        assert_eq!(
+            handler_error(CacheError::Unauthorized("token".into())).code,
+            ErrorCode::Unauthorized
+        );
+        assert_eq!(
+            handler_error(CacheError::Forbidden("rls".into())).code,
+            ErrorCode::Unauthorized
+        );
+        assert_eq!(
+            handler_error(CacheError::Halted("replica".into())).code,
+            ErrorCode::Busy
+        );
     }
 
     #[test]
     fn mutation_rejection_is_typed_for_wire() {
-        let error = handler_error(CacheError::Rejected("only read-only SELECT queries are cacheable; writes and DDL are not supported".into()));
+        let error = handler_error(CacheError::Rejected(
+            "only read-only SELECT queries are cacheable; writes and DDL are not supported".into(),
+        ));
         assert_eq!(error.code, ErrorCode::InvalidInput);
     }
 
@@ -189,32 +240,6 @@ mod tests {
             .await
             .is_err());
         drop(collision);
-    }
-
-    #[cfg(all(feature = "server", unix))]
-    #[tokio::test]
-    async fn shutdown_signal_helper() {
-        if std::env::var_os("PGPAW_SIGNAL_HELPER").is_some() {
-            crate::shutdown_signal().await.unwrap();
-        }
-    }
-
-    #[cfg(all(feature = "server", unix))]
-    #[test]
-    fn sigterm_completes_the_production_signal_wait() {
-        let mut child = Command::new(std::env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "az_wire::tests::shutdown_signal_helper",
-                "--nocapture",
-            ])
-            .env("PGPAW_SIGNAL_HELPER", "1")
-            .spawn()
-            .unwrap();
-        std::thread::sleep(Duration::from_millis(200));
-        let sent = unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
-        assert_eq!(sent, 0);
-        assert!(child.wait().unwrap().success());
     }
 
     fn websocket_host(address: SocketAddr) -> HostConfig {

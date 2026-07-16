@@ -45,10 +45,24 @@ pub enum LiveEvent {
         hash: Option<String>,
         version: u64,
     },
-    Insert { key: String, row: Value, txid: u32 },
-    Update { key: String, row: Value, txid: u32 },
-    Delete { key: String, row: Value, txid: u32 },
-    UpToDate { txid: u32 },
+    Insert {
+        key: String,
+        row: Value,
+        txid: u32,
+    },
+    Update {
+        key: String,
+        row: Value,
+        txid: u32,
+    },
+    Delete {
+        key: String,
+        row: Value,
+        txid: u32,
+    },
+    UpToDate {
+        txid: u32,
+    },
     Reset,
 }
 
@@ -70,7 +84,10 @@ mod tests {
             version: 4,
         })
         .unwrap();
-        assert_eq!(value, json!({"scope": "public", "hash": "abc", "version": 4}));
+        assert_eq!(
+            value,
+            json!({"scope": "public", "hash": "abc", "version": 4})
+        );
     }
 
     #[test]

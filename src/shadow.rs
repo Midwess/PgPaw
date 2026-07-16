@@ -1,7 +1,7 @@
 use pglite::{MultiProcessOptions, PGlite};
 use tempfile::TempDir;
 
-use crate::error::CacheError;
+use crate::error::{CacheError, LifecycleErrorKind};
 
 pub struct ShadowHandle {
     _db: PGlite,
@@ -23,7 +23,9 @@ pub async fn open_shadow() -> Result<ShadowHandle, CacheError> {
         max_connections: 4,
         ..Default::default()
     };
-    let db = PGlite::open_multi_process(data_dir.path(), options).await?;
+    let db = PGlite::open_multi_process(data_dir.path(), options)
+        .await
+        .map_err(|error| CacheError::lifecycle(LifecycleErrorKind::Startup, error))?;
     let dsn = db
         .connection_uri()
         .ok_or_else(|| CacheError::Config("shadow engine exposes no connection_uri".into()))?;

@@ -3,7 +3,9 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use az_wire::{handler, Handler, HandlerError, Node, ParentLink, Reply, Request, TopologyConfig};
+use az_wire::{
+    handler, http, Handler, HandlerError, Node, ParentLink, Reply, Request, SendExt, TopologyConfig,
+};
 use futures_util::future::try_join_all;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -49,12 +51,10 @@ async fn native_topologies_have_no_gross_adapter_regression() {
         .await
         .unwrap();
     let public = caller("public-caller");
-    let transport = az_wire_client::dial_transport(&format!(
-        "ws://{}",
-        hosting.websocket_addr().unwrap()
-    ))
-    .await
-    .unwrap();
+    let transport =
+        az_wire_client::dial_transport(&format!("ws://{}", hosting.websocket_addr().unwrap()))
+            .await
+            .unwrap();
     public
         .connect_transport("public-service", transport)
         .await
@@ -64,8 +64,8 @@ async fn native_topologies_have_no_gross_adapter_regression() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("parent.sock");
     let unix_service = service("unix-service");
-    let unix_hosting = unix_service
-        .host_unix(az_wire_transport::unix::UnixListener::bind(&path).unwrap());
+    let unix_hosting =
+        unix_service.host_unix(az_wire_transport::unix::UnixListener::bind(&path).unwrap());
     let unix = caller("unix-caller");
     let topology = unix
         .start_topology(TopologyConfig::parent(ParentLink::unix(
@@ -136,9 +136,12 @@ async fn request(node: &Arc<Node>) {
         sql: "benchmark-read".into(),
     })
     .unwrap();
-    let response = Node::request(node, "pgpaw.read", payload)
+    let response = http::Request::post("/pgpaw.read")
+        .body(payload)
+        .send(node)
         .await
         .unwrap();
+    let response: Value = serde_json::from_slice(response.body()).unwrap();
     assert_eq!(response["version"], 1);
 }
 
@@ -158,7 +161,8 @@ fn report(name: &str, result: &Measurement) {
 
 fn assert_gross_regression(name: &str, direct: &Measurement, candidate: &Measurement) {
     let direct_mean = direct.latencies.iter().sum::<Duration>() / direct.latencies.len() as u32;
-    let candidate_mean = candidate.latencies.iter().sum::<Duration>() / candidate.latencies.len() as u32;
+    let candidate_mean =
+        candidate.latencies.iter().sum::<Duration>() / candidate.latencies.len() as u32;
     assert!(
         candidate_mean < direct_mean * 100,
         "{name} mean latency {candidate_mean:?} exceeds the gross-regression limit relative to {direct_mean:?}"

@@ -8,14 +8,61 @@ use actix_web::{FromRequest, HttpRequest};
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde_json::Value;
 
-#[cfg(feature = "server")]
-use crate::di::Di;
 use crate::error::CacheError;
 
 #[derive(Clone)]
 pub struct Principal {
     pub role: String,
     pub claims_json: String,
+}
+
+#[derive(Clone, Default)]
+pub struct AuthConfig {
+    pub jwt_secret: Option<String>,
+    pub jwt_public_key: Option<String>,
+    pub jwt_jwks_url: Option<String>,
+    pub role_claim: Option<String>,
+}
+
+impl AuthConfig {
+    pub fn none() -> AuthConfig {
+        AuthConfig::default()
+    }
+
+    pub fn jwt_secret(secret: impl Into<String>) -> AuthConfig {
+        AuthConfig {
+            jwt_secret: Some(secret.into()),
+            ..AuthConfig::default()
+        }
+    }
+
+    pub fn jwt_public_key(pem: impl Into<String>) -> AuthConfig {
+        AuthConfig {
+            jwt_public_key: Some(pem.into()),
+            ..AuthConfig::default()
+        }
+    }
+
+    pub fn jwt_jwks_url(url: impl Into<String>) -> AuthConfig {
+        AuthConfig {
+            jwt_jwks_url: Some(url.into()),
+            ..AuthConfig::default()
+        }
+    }
+
+    pub fn role_claim(mut self, claim: impl Into<String>) -> AuthConfig {
+        self.role_claim = Some(claim.into());
+        self
+    }
+
+    pub(crate) fn into_verifier(self) -> Result<Option<Verifier>, CacheError> {
+        Verifier::build(
+            self.jwt_secret,
+            self.jwt_public_key,
+            self.jwt_jwks_url,
+            self.role_claim.unwrap_or_else(|| "role".to_string()),
+        )
+    }
 }
 
 #[derive(Clone)]
@@ -125,16 +172,23 @@ fn authenticate(req: &HttpRequest) -> Result<Option<Principal>, CacheError> {
             log::warn!("event=auth_failed reason=malformed_authorization_header");
             CacheError::Unauthorized("malformed Authorization header".to_string())
         })?;
-    match Di::instance().operations().authenticate(Some(token)) {
-            Ok(Some(principal)) => {
-                log::info!("event=auth_verified role={}", principal.role);
-                Ok(Some(principal))
-            }
-            Err(error) => {
-                log::warn!("event=auth_failed error={:?}", error.to_string());
-                Err(error)
-            }
-            Ok(None) => unreachable!(),
+    let Some(operations) = req.app_data::<actix_web::web::Data<crate::operations::ReadOperations>>()
+    else {
+        log::warn!("event=auth_failed reason=read_operations_state_missing");
+        return Err(CacheError::Config(
+            "read operations are not configured".to_string(),
+        ));
+    };
+    match operations.authenticate(Some(token)) {
+        Ok(Some(principal)) => {
+            log::info!("event=auth_verified role={}", principal.role);
+            Ok(Some(principal))
+        }
+        Err(error) => {
+            log::warn!("event=auth_failed error={:?}", error.to_string());
+            Err(error)
+        }
+        Ok(None) => unreachable!(),
     }
 }
 
@@ -217,6 +271,45 @@ mod tests {
     #[test]
     fn build_rejects_multiple_key_sources() {
         assert!(Verifier::build(Some("s".into()), Some("p".into()), None, "role".into()).is_err());
+    }
+
+    #[test]
+    fn auth_config_delegates_to_verifier_build() {
+        assert!(AuthConfig::jwt_secret("s")
+            .into_verifier()
+            .unwrap()
+            .is_some());
+        assert!(AuthConfig::none().into_verifier().unwrap().is_none());
+        let both = AuthConfig {
+            jwt_secret: Some("s".into()),
+            jwt_public_key: Some("p".into()),
+            ..AuthConfig::default()
+        };
+        assert!(both.into_verifier().is_err());
+    }
+
+    #[test]
+    fn auth_config_role_claim_chains_and_defaults() {
+        let custom = AuthConfig::jwt_secret("test-secret")
+            .role_claim("app_role")
+            .into_verifier()
+            .unwrap()
+            .unwrap();
+        let token = sign(
+            "test-secret",
+            json!({ "app_role": "member", "exp": now_secs() + 3600 }),
+        );
+        assert_eq!(custom.verify(&token).unwrap().role, "member");
+
+        let default = AuthConfig::jwt_secret("test-secret")
+            .into_verifier()
+            .unwrap()
+            .unwrap();
+        let token = sign(
+            "test-secret",
+            json!({ "role": "authenticated", "exp": now_secs() + 3600 }),
+        );
+        assert_eq!(default.verify(&token).unwrap().role, "authenticated");
     }
 
     #[test]

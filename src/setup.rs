@@ -2,11 +2,10 @@ use std::io::{self, Write};
 
 use tokio_postgres::{Client, Config, NoTls};
 
-use crate::di::UpstreamConfig;
+use crate::composition::UpstreamConfig;
 use crate::error::CacheError;
 
-pub async fn prepare(upstream: &UpstreamConfig) -> Result<(), CacheError> {
-    let publication = &upstream.publication;
+pub async fn prepare(upstream: &UpstreamConfig, publication: &str) -> Result<(), CacheError> {
     if !is_identifier(publication) {
         return Err(CacheError::Config(format!(
             "Invalid publication name `{publication}`. Use only letters, digits, and underscore."
@@ -48,7 +47,7 @@ pub async fn prepare(upstream: &UpstreamConfig) -> Result<(), CacheError> {
     apply(&client, publication).await
 }
 
-pub async fn preflight(upstream: &UpstreamConfig) -> Result<(), CacheError> {
+pub async fn preflight(upstream: &UpstreamConfig, publication: &str) -> Result<(), CacheError> {
     let client = connect(upstream).await.map_err(|e| {
         CacheError::Config(format!(
             "Could not connect to upstream Postgres at {}:{} as {} ({e}). Check --pg-host, --pg-port, --pg-user, and --pg-password.",
@@ -75,14 +74,13 @@ pub async fn preflight(upstream: &UpstreamConfig) -> Result<(), CacheError> {
     let exists: bool = client
         .query_one(
             "select exists(select 1 from pg_publication where pubname = $1)",
-            &[&upstream.publication],
+            &[&publication],
         )
         .await?
         .get(0);
     if !exists {
         return Err(CacheError::Config(format!(
-            "Publication \"{}\" does not exist on upstream Postgres. Run `pgpaw init` to create it, or pass --publication with an existing publication.",
-            upstream.publication
+            "Publication \"{publication}\" does not exist on upstream Postgres. Run `pgpaw init` to create it, or pass --publication with an existing publication."
         )));
     }
 

@@ -119,34 +119,42 @@ impl Server {
     pub async fn launch(up: &Upstream, jwt_secret: Option<&str>) -> Server {
         let data = tempfile::tempdir().expect("tempdir");
         let port = free_port();
-        let config = pgpaw::ServerConfig {
-            bind_addr: format!("127.0.0.1:{port}"),
-            #[cfg(feature = "az-wire")]
-            az_wire_addr: None,
-            #[cfg(feature = "az-wire")]
-            az_wire_node: "pgpaw".to_string(),
-            data_dir: PathBuf::from(data.path()),
-            max_connections: 8,
-            cache_size_bytes: 64 * 1024 * 1024,
-            jwt_secret: jwt_secret.map(str::to_string),
-            jwt_public_key: None,
-            jwt_jwks_url: None,
-            jwt_role_claim: "role".to_string(),
-            cors_origin: None,
+        let addr: std::net::SocketAddr = format!("127.0.0.1:{port}").parse().expect("http addr");
+        let source = pgpaw::ReplicaSource {
             upstream: pgpaw::UpstreamConfig {
                 host: up.host.clone(),
                 port: up.port,
                 user: up.user.clone(),
                 password: up.password.clone(),
                 database: up.database.clone(),
-                publication: PUBLICATION.to_string(),
-                slot: "pgpaw_slot".to_string(),
                 sslmode: "disable".to_string(),
             },
+            data_dir: PathBuf::from(data.path()),
+            publication: PUBLICATION.to_string(),
+            slot: "pgpaw_slot".to_string(),
+            max_connections: 8,
+        };
+        let auth = pgpaw::AuthConfig {
+            jwt_secret: jwt_secret.map(str::to_string),
+            ..pgpaw::AuthConfig::default()
         };
 
         let handle = std::thread::spawn(move || {
-            actix_web::rt::System::new().block_on(async move { pgpaw::run(config).await })
+            actix_web::rt::System::new().block_on(async move {
+                let mut pgpaw = pgpaw::PgPaw::builder()
+                    .source(pgpaw::Source::replica(source))
+                    .cache(pgpaw::CacheConfig {
+                        max_bytes: 64 * 1024 * 1024,
+                    })
+                    .auth(auth)
+                    .http(pgpaw::HttpConfig {
+                        addr,
+                        cors_origin: None,
+                    })
+                    .open()
+                    .await?;
+                pgpaw.wait().await
+            })
         });
         let base = format!("http://127.0.0.1:{port}");
         let http = reqwest::Client::builder()
@@ -299,34 +307,37 @@ pub async fn run_and_capture_error(
         .await;
     let data = tempfile::tempdir().expect("tempdir");
     let port = free_port();
-    let config = pgpaw::ServerConfig {
-        bind_addr: format!("127.0.0.1:{port}"),
-        #[cfg(feature = "az-wire")]
-        az_wire_addr: None,
-        #[cfg(feature = "az-wire")]
-        az_wire_node: "pgpaw".to_string(),
-        data_dir: PathBuf::from(data.path()),
-        max_connections: 8,
-        cache_size_bytes: 64 * 1024 * 1024,
-        jwt_secret: jwt_secret.map(str::to_string),
-        jwt_public_key: None,
-        jwt_jwks_url: jwt_jwks_url.map(str::to_string),
-        jwt_role_claim: "role".to_string(),
-        cors_origin: None,
-        upstream: pgpaw::UpstreamConfig {
-            host: up.host.clone(),
-            port: up.port,
-            user: up.user.clone(),
-            password: up.password.clone(),
-            database: up.database.clone(),
+    let addr: std::net::SocketAddr = format!("127.0.0.1:{port}").parse().expect("http addr");
+    pgpaw::PgPaw::builder()
+        .source(pgpaw::Source::replica(pgpaw::ReplicaSource {
+            upstream: pgpaw::UpstreamConfig {
+                host: up.host.clone(),
+                port: up.port,
+                user: up.user.clone(),
+                password: up.password.clone(),
+                database: up.database.clone(),
+                sslmode: "disable".to_string(),
+            },
+            data_dir: PathBuf::from(data.path()),
             publication: PUBLICATION.to_string(),
             slot: "pgpaw_slot".to_string(),
-            sslmode: "disable".to_string(),
-        },
-    };
-    pgpaw::run(config)
+            max_connections: 8,
+        }))
+        .cache(pgpaw::CacheConfig {
+            max_bytes: 64 * 1024 * 1024,
+        })
+        .auth(pgpaw::AuthConfig {
+            jwt_secret: jwt_secret.map(str::to_string),
+            jwt_jwks_url: jwt_jwks_url.map(str::to_string),
+            ..pgpaw::AuthConfig::default()
+        })
+        .http(pgpaw::HttpConfig {
+            addr,
+            cors_origin: None,
+        })
+        .open()
         .await
-        .expect_err("expected pgpaw::run to fail")
+        .expect_err("expected pgpaw open to fail")
 }
 
 pub fn mint(secret: &str, claims: Value) -> String {

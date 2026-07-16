@@ -1,5 +1,16 @@
 use serde_json::json;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LifecycleErrorKind {
+    DataDirectoryBusy,
+    InvalidConfiguration,
+    Startup,
+    Connection,
+    Topology,
+    Shutdown,
+    Recovery,
+}
+
 #[derive(thiserror::Error, Debug)]
 pub enum CacheError {
     #[error(transparent)]
@@ -23,9 +34,29 @@ pub enum CacheError {
     Forbidden(String),
     #[error(transparent)]
     Io(#[from] std::io::Error),
+    #[error("{kind:?}: {message}")]
+    Lifecycle {
+        kind: LifecycleErrorKind,
+        message: String,
+    },
 }
 
 impl CacheError {
+    pub fn lifecycle_kind(&self) -> Option<LifecycleErrorKind> {
+        match self {
+            Self::Config(_) => Some(LifecycleErrorKind::InvalidConfiguration),
+            Self::Lifecycle { kind, .. } => Some(*kind),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn lifecycle(kind: LifecycleErrorKind, error: impl std::fmt::Display) -> CacheError {
+        CacheError::Lifecycle {
+            kind,
+            message: error.to_string(),
+        }
+    }
+
     pub fn name(&self) -> &'static str {
         match self {
             Self::Pglite(_) => "PgliteError",
@@ -39,6 +70,7 @@ impl CacheError {
             Self::Unauthorized(_) => "UnauthorizedError",
             Self::Forbidden(_) => "ForbiddenError",
             Self::Io(_) => "IoError",
+            Self::Lifecycle { .. } => "LifecycleError",
         }
     }
 

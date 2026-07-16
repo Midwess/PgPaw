@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Once;
 
@@ -6,7 +7,10 @@ use log::{LevelFilter, Log, Metadata, Record};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-use pgpaw::{init, run, run_primary, CacheError, PrimaryConfig, ServerConfig, UpstreamConfig};
+use pgpaw::{
+    init, AuthConfig, CacheConfig, CacheError, HttpConfig, PgPaw, PgPawBuilder, PrimarySource,
+    ReplicaSource, Source, UpstreamConfig,
+};
 
 #[derive(Parser)]
 #[command(
@@ -81,6 +85,9 @@ struct PrimaryOptions {
     /// Data directory for embedded Postgres
     #[arg(long, env = "PGPAW_DATA_DIR", default_value = "./cache-data")]
     data_dir: PathBuf,
+    /// Database served by embedded Postgres
+    #[arg(long, env = "PGPAW_DATABASE", default_value = "postgres")]
+    database: String,
     /// Maximum pooled connections to embedded Postgres
     #[arg(long, env = "PGPAW_MAX_CONNECTIONS", default_value_t = 8)]
     max_connections: usize,
@@ -94,6 +101,18 @@ struct PrimaryOptions {
     /// TCP port for embedded Postgres
     #[arg(long = "primary-port", env = "PRIMARY_PORT", default_value_t = 5432)]
     primary_port: u16,
+    #[cfg(feature = "az-wire")]
+    /// Node identity for native az-wire
+    #[arg(long, env = "PGPAW_AZ_WIRE_NODE", default_value = "pgpaw")]
+    az_wire_node: String,
+    #[cfg(feature = "az-wire")]
+    /// Parent node identity for the az-wire child link
+    #[arg(long = "az-wire-parent-node", env = "PGPAW_AZ_WIRE_PARENT_NODE")]
+    az_wire_parent_node: Option<String>,
+    #[cfg(feature = "az-wire")]
+    /// Unix socket path of the az-wire parent
+    #[arg(long = "az-wire-parent-unix", env = "PGPAW_AZ_WIRE_PARENT_UNIX")]
+    az_wire_parent_unix: Option<PathBuf>,
 }
 
 #[derive(Args, Clone)]
@@ -155,70 +174,111 @@ struct AuthOptions {
 }
 
 impl PostgresOptions {
-    fn upstream_for_init(&self) -> UpstreamConfig {
+    fn upstream(&self) -> UpstreamConfig {
         UpstreamConfig {
             host: self.pg_host.clone(),
             port: self.pg_port,
             user: self.pg_user.clone(),
             password: self.pg_password.clone(),
             database: self.pg_database.clone(),
-            publication: self.publication.clone(),
-            slot: "pgpaw_slot".to_string(),
             sslmode: "disable".to_string(),
         }
     }
 }
 
-impl UpstreamOptions {
-    fn config(&self) -> UpstreamConfig {
-        UpstreamConfig {
-            host: self.postgres.pg_host.clone(),
-            port: self.postgres.pg_port,
-            user: self.postgres.pg_user.clone(),
-            password: self.postgres.pg_password.clone(),
-            database: self.postgres.pg_database.clone(),
-            publication: self.postgres.publication.clone(),
-            slot: self.slot.clone(),
-            sslmode: self.sslmode.clone(),
+impl AuthOptions {
+    fn config(&self) -> AuthConfig {
+        AuthConfig {
+            jwt_secret: self.jwt_secret.clone(),
+            jwt_public_key: self.jwt_public_key.clone(),
+            jwt_jwks_url: self.jwt_jwks_url.clone(),
+            role_claim: Some(self.jwt_role_claim.clone()),
         }
     }
 }
 
 impl ServeOptions {
-    fn config(&self) -> ServerConfig {
-        ServerConfig {
-            bind_addr: format!("{}:{}", self.host, self.port),
-            #[cfg(feature = "az-wire")]
-            az_wire_addr: self
-                .az_wire_port
-                .map(|port| std::net::SocketAddr::new(self.az_wire_host, port)),
-            #[cfg(feature = "az-wire")]
-            az_wire_node: self.az_wire_node.clone(),
+    fn addr(&self) -> Result<SocketAddr, CacheError> {
+        use std::net::ToSocketAddrs;
+        format!("{}:{}", self.host, self.port)
+            .to_socket_addrs()
+            .map_err(CacheError::Io)?
+            .next()
+            .ok_or_else(|| {
+                CacheError::Config(format!("could not resolve {}:{}", self.host, self.port))
+            })
+    }
+
+    #[cfg(feature = "az-wire")]
+    fn az_wire_addr(&self) -> Option<SocketAddr> {
+        self.az_wire_port
+            .map(|port| SocketAddr::new(self.az_wire_host, port))
+    }
+
+    fn source(&self) -> ReplicaSource {
+        ReplicaSource {
+            upstream: UpstreamConfig {
+                host: self.upstream.postgres.pg_host.clone(),
+                port: self.upstream.postgres.pg_port,
+                user: self.upstream.postgres.pg_user.clone(),
+                password: self.upstream.postgres.pg_password.clone(),
+                database: self.upstream.postgres.pg_database.clone(),
+                sslmode: self.upstream.sslmode.clone(),
+            },
             data_dir: self.data_dir.clone(),
+            publication: self.upstream.postgres.publication.clone(),
+            slot: self.upstream.slot.clone(),
             max_connections: self.max_connections,
-            cache_size_bytes: self.cache_size_bytes,
-            jwt_secret: self.auth.jwt_secret.clone(),
-            jwt_public_key: self.auth.jwt_public_key.clone(),
-            jwt_jwks_url: self.auth.jwt_jwks_url.clone(),
-            jwt_role_claim: self.auth.jwt_role_claim.clone(),
-            cors_origin: self.cors_origin.clone(),
-            upstream: self.upstream.config(),
         }
+    }
+
+    fn builder(&self) -> Result<PgPawBuilder, CacheError> {
+        let builder = PgPaw::builder()
+            .source(Source::replica(self.source()))
+            .cache(CacheConfig {
+                max_bytes: self.cache_size_bytes,
+            })
+            .auth(self.auth.config())
+            .http(HttpConfig {
+                addr: self.addr()?,
+                cors_origin: self.cors_origin.clone(),
+            });
+        #[cfg(feature = "az-wire")]
+        let builder = match self.az_wire_addr() {
+            Some(addr) => builder.az_wire(
+                az_wire::NodeBuilder::new(&self.az_wire_node)
+                    .insecure_accept_declared_peer_identities(),
+                az_wire::TopologyConfig::host(az_wire::HostConfig::new(addr)),
+            ),
+            None => builder,
+        };
+        Ok(builder)
     }
 }
 
 impl PrimaryOptions {
-    fn config(&self) -> PrimaryConfig {
-        PrimaryConfig {
+    fn builder(&self) -> PgPawBuilder {
+        let builder = PgPaw::builder().source(Source::primary(PrimarySource {
             data_dir: self.data_dir.clone(),
-            database: "postgres".into(),
+            database: self.database.clone(),
             listen_addresses: self.primary_listen.clone(),
             port: self.primary_port,
             min_connections: 0,
             max_connections: self.max_connections,
-            #[cfg(feature = "az-wire")]
-            verifier: None,
-        }
+        }));
+        #[cfg(feature = "az-wire")]
+        let builder = match (&self.az_wire_parent_node, &self.az_wire_parent_unix) {
+            (Some(parent_node), Some(parent_unix)) => builder.az_wire(
+                az_wire::NodeBuilder::new(&self.az_wire_node)
+                    .insecure_accept_declared_peer_identities(),
+                az_wire::TopologyConfig::parent(az_wire::ParentLink::unix(
+                    parent_node,
+                    parent_unix,
+                )),
+            ),
+            _ => builder,
+        };
+        builder
     }
 }
 
@@ -237,22 +297,61 @@ async fn run_cli() -> Result<(), CacheError> {
     match cli.command {
         Some(Command::Init(options)) => {
             log::info!("event=command_start command=init");
-            init(options.postgres.upstream_for_init()).await?
+            init(options.postgres.upstream(), &options.postgres.publication).await?
         }
         Some(Command::Serve(options)) => {
             log::info!("event=command_start command=serve");
-            run(options.config()).await?
+            run_pgpaw(options.builder()?).await?
         }
         Some(Command::Primary(options)) => {
             log::info!("event=command_start command=primary");
-            run_primary(options.config()).await?
+            run_pgpaw(options.builder()).await?
         }
         None => {
             log::info!("event=command_start command=serve implicit=true");
-            run(cli.serve.config()).await?
+            run_pgpaw(cli.serve.builder()?).await?
         }
     }
     Ok(())
+}
+
+async fn run_pgpaw(builder: PgPawBuilder) -> Result<(), CacheError> {
+    let mut pgpaw = builder.open().await?;
+    if let Some(dsn) = pgpaw.primary_dsn() {
+        log::info!("event=primary_ready dsn={}", dsn);
+    }
+    let result = tokio::select! {
+        biased;
+        result = shutdown_signal() => result,
+        result = pgpaw.wait() => result,
+    };
+    match &result {
+        Ok(()) => log::info!("event=server_stopped result=ok"),
+        Err(error) => log::error!(
+            "event=server_stopped result=error error={:?}",
+            error.to_string()
+        ),
+    }
+    log::info!("event=server_shutdown_start");
+    pgpaw.shutdown().await?;
+    log::info!("event=server_shutdown_complete");
+    result
+}
+
+#[cfg(unix)]
+async fn shutdown_signal() -> Result<(), CacheError> {
+    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .map_err(CacheError::Io)?;
+    tokio::select! {
+        biased;
+        result = tokio::signal::ctrl_c() => result.map_err(CacheError::Io),
+        _ = terminate.recv() => Ok(()),
+    }
+}
+
+#[cfg(not(unix))]
+async fn shutdown_signal() -> Result<(), CacheError> {
+    tokio::signal::ctrl_c().await.map_err(CacheError::Io)
 }
 
 static LOGGER: PgpawLogger = PgpawLogger;
@@ -298,11 +397,16 @@ fn timestamp() -> String {
         .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
 }
 
-#[cfg(all(test, feature = "az-wire"))]
+#[cfg(test)]
 mod tests {
     use super::{Cli, Command};
     use clap::Parser;
+    #[cfg(unix)]
+    use std::process::Command as ProcessCommand;
+    #[cfg(unix)]
+    use std::time::Duration;
 
+    #[cfg(feature = "az-wire")]
     #[test]
     fn az_wire_port_is_optional_for_implicit_and_explicit_serve() {
         let implicit = Cli::try_parse_from(["pgpaw"]).unwrap();
@@ -315,6 +419,7 @@ mod tests {
         assert_eq!(explicit.az_wire_port, None);
     }
 
+    #[cfg(feature = "az-wire")]
     #[test]
     fn az_wire_port_parses_for_implicit_and_explicit_serve() {
         let implicit = Cli::try_parse_from(["pgpaw", "--az-wire-port", "9000"]).unwrap();
@@ -327,6 +432,7 @@ mod tests {
         assert_eq!(explicit.az_wire_port, Some(9001));
     }
 
+    #[cfg(feature = "az-wire")]
     #[test]
     fn az_wire_host_and_node_parse_with_minimal_defaults() {
         let defaults = Cli::try_parse_from(["pgpaw"]).unwrap().serve;
@@ -348,6 +454,7 @@ mod tests {
         assert_eq!(configured.az_wire_node, "cache");
     }
 
+    #[cfg(feature = "az-wire")]
     #[test]
     fn az_wire_host_requires_an_ip_literal() {
         assert!(Cli::try_parse_from([
@@ -360,16 +467,18 @@ mod tests {
         .is_err());
     }
 
+    #[cfg(feature = "az-wire")]
     #[test]
-    fn server_config_is_http_only_without_az_wire_port() {
-        let config = Cli::try_parse_from(["pgpaw"]).unwrap().serve.config();
-        assert_eq!(config.bind_addr, "127.0.0.1:8080");
-        assert_eq!(config.az_wire_addr, None);
+    fn serve_is_http_only_without_az_wire_port() {
+        let options = Cli::try_parse_from(["pgpaw"]).unwrap().serve;
+        assert_eq!(options.addr().unwrap().to_string(), "127.0.0.1:8080");
+        assert_eq!(options.az_wire_addr(), None);
     }
 
+    #[cfg(feature = "az-wire")]
     #[test]
-    fn server_config_keeps_http_and_az_wire_addresses_independent() {
-        let config = Cli::try_parse_from([
+    fn serve_keeps_http_and_az_wire_addresses_independent() {
+        let options = Cli::try_parse_from([
             "pgpaw",
             "--host",
             "127.0.0.2",
@@ -381,9 +490,58 @@ mod tests {
             "9000",
         ])
         .unwrap()
-        .serve
-        .config();
-        assert_eq!(config.bind_addr, "127.0.0.2:8081");
-        assert_eq!(config.az_wire_addr.unwrap().to_string(), "127.0.0.3:9000");
+        .serve;
+        assert_eq!(options.addr().unwrap().to_string(), "127.0.0.2:8081");
+        assert_eq!(options.az_wire_addr().unwrap().to_string(), "127.0.0.3:9000");
+    }
+
+    #[cfg(feature = "az-wire")]
+    #[test]
+    fn primary_parses_database_and_parent_link_flags() {
+        let parsed = Cli::try_parse_from([
+            "pgpaw",
+            "primary",
+            "--database",
+            "app",
+            "--az-wire-node",
+            "pgpaw",
+            "--az-wire-parent-node",
+            "worldant",
+            "--az-wire-parent-unix",
+            "/tmp/worldant.sock",
+        ])
+        .unwrap();
+        let Some(Command::Primary(options)) = parsed.command else {
+            panic!("expected primary command");
+        };
+        assert_eq!(options.database, "app");
+        assert_eq!(options.az_wire_node, "pgpaw");
+        assert_eq!(options.az_wire_parent_node.as_deref(), Some("worldant"));
+        assert_eq!(
+            options.az_wire_parent_unix.as_deref(),
+            Some(std::path::Path::new("/tmp/worldant.sock"))
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn shutdown_signal_helper() {
+        if std::env::var_os("PGPAW_SIGNAL_HELPER").is_some() {
+            super::shutdown_signal().await.unwrap();
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sigterm_completes_the_production_signal_wait() {
+        let mut child = ProcessCommand::new(std::env::current_exe().unwrap())
+            .args(["--exact", "tests::shutdown_signal_helper", "--nocapture"])
+            .env("PGPAW_SIGNAL_HELPER", "1")
+            .spawn()
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+        let sent = unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
+        assert_eq!(sent, 0);
+        assert!(child.wait().unwrap().success());
     }
 }

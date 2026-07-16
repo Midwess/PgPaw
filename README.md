@@ -265,12 +265,32 @@ read-only SQL, authorization, cache, cursor, and live-query semantics. Mutating 
 
 ### Embedded primary
 
-Rust hosts can call `open_primary(&PrimaryConfig)` to start one writable embedded PostgreSQL primary,
-then use `PrimaryHandle::dsn()` to create a direct PostgreSQL pool. With the `az-wire` feature,
-`PrimaryHandle::attach_child(node, topology)` can attach read-only and realtime services as a
-listenerless child of an existing az-wire node. The topology must contain a parent link and no host
-listener. The direct pool remains the read/write database path; the child is additive and creates no
-replica or second database.
+Rust hosts compose PgPaw through one builder. `Source::primary` starts one writable embedded
+PostgreSQL primary; `primary_dsn()` yields the DSN for a direct PostgreSQL pool. With the
+`az-wire` feature, `.az_wire(node, topology)` exposes the same read-only and realtime services
+over az-wire, for example as a listenerless child of a parent node:
+
+```rust
+let pgpaw = PgPaw::builder()
+    .source(Source::primary(PrimarySource::embedded("./primary-data")))
+    .auth(AuthConfig::jwt_secret(secret))
+    .az_wire(
+        az_wire::NodeBuilder::new("pgpaw").insecure_accept_declared_peer_identities(),
+        az_wire::TopologyConfig::parent(az_wire::ParentLink::unix(
+            "worldant",
+            "/tmp/worldant.sock",
+        )),
+    )
+    .open()
+    .await?;
+let dsn = pgpaw.primary_dsn().unwrap();
+```
+
+The same builder serves the replica mode: `Source::replica(ReplicaSource { .. })` plus an optional
+`.http(HttpConfig { .. })` binding and any number of `.az_wire(..)` bindings — every binding reaches
+the same read/live capabilities. `pgpaw.wait().await` blocks until a binding stops; `shutdown()`
+stops bindings first, then the source, then closes the database. The direct pool remains the
+read/write database path; the az-wire binding is additive and creates no replica or second database.
 
 ## HTTP API
 

@@ -57,7 +57,6 @@ impl CdcBridge {
         })
     }
 
-    #[cfg(feature = "az-wire")]
     pub(crate) fn primary(versions: VersionIndex) -> Result<CdcBridge, CacheError> {
         let (input, rx) = std::sync::mpsc::channel::<Arc<CommittedTransaction>>();
         let (tx, _) = broadcast::channel(1024);
@@ -84,7 +83,6 @@ impl CdcBridge {
         })
     }
 
-    #[cfg(feature = "az-wire")]
     pub(crate) fn publish(&self, transaction: CommittedTransaction) {
         if let Some(input) = &self.input {
             let _ = input.send(Arc::new(transaction));

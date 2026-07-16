@@ -5,8 +5,8 @@ use tokio_stream::StreamExt;
 
 use crate::auth::{AuthOutcome, Principal};
 use crate::classify::CacheableQuery;
-use crate::di::Di;
 use crate::error::CacheError;
+use crate::operations::ReadOperations;
 
 #[derive(Deserialize)]
 pub struct QueryParams {
@@ -22,14 +22,17 @@ pub async fn query(
     params: web::Query<QueryParams>,
     body: web::Json<QueryBody>,
     auth: AuthOutcome,
+    operations: web::Data<ReadOperations>,
 ) -> HttpResponse {
-    let di = Di::instance();
     let principal = match auth.0 {
         Ok(principal) => principal,
         Err(error) => return error_response(error),
     };
 
-    let read = match di.operations().prepare(body.sql.as_str(), principal.clone()).await {
+    let read = match operations
+        .prepare(body.sql.as_str(), principal.clone())
+        .await
+    {
         Ok(read) => read,
         Err(error) => return error_response(error),
     };
@@ -49,15 +52,15 @@ pub async fn query(
 
     if private {
         if live {
-            return live_query(di, read.query, read.principal).await;
+            return live_query(&operations, read.query, read.principal).await;
         }
-        return private_response(di, &read, &fingerprint, &tables).await;
+        return private_response(&operations, &read, &fingerprint, &tables).await;
     }
 
     if live {
-        return live_query(di, read.query, None).await;
+        return live_query(&operations, read.query, None).await;
     }
-    match di.operations().materialize(&read).await {
+    match operations.materialize(&read).await {
         Ok((hash, version, snapshot)) => {
             log::info!(
                 "event=query_snapshot scope=public fingerprint={} tables={} version={} cursor=/q/{}/{} response=redirect snapshot_bytes={}",
@@ -78,14 +81,14 @@ pub async fn query(
 }
 
 async fn private_response(
-    di: &Di,
+    operations: &ReadOperations,
     read: &crate::operations::PreparedRead,
     fingerprint: &str,
     tables: &str,
 ) -> HttpResponse {
-    match di.operations().execute_private(read).await {
+    match operations.execute_private(read).await {
         Ok(body) => {
-            let version = di.versions().version_of(&read.query.tables, &read.query.eq_filters).0;
+            let (_, version, _) = operations.materialize_version(read);
             log::info!(
                 "event=query_snapshot scope=private fingerprint={} tables={} version={} role={} response=inline snapshot_bytes={}",
                 fingerprint,
@@ -104,12 +107,16 @@ async fn private_response(
 }
 
 async fn live_query(
-    di: &'static Di,
+    operations: &ReadOperations,
     query: CacheableQuery,
     principal: Option<Principal>,
 ) -> HttpResponse {
-    let read = crate::operations::PreparedRead { query, principal, private: false };
-    let subscription = match di.operations().subscribe(read).await {
+    let read = crate::operations::PreparedRead {
+        query,
+        principal,
+        private: false,
+    };
+    let subscription = match operations.subscribe(read).await {
         Ok(subscription) => subscription,
         Err(error) => return error_response(error),
     };
@@ -120,9 +127,12 @@ async fn live_query(
         .streaming(stream)
 }
 
-pub async fn cursor(path: web::Path<(String, String)>) -> HttpResponse {
+pub async fn cursor(
+    path: web::Path<(String, String)>,
+    operations: web::Data<ReadOperations>,
+) -> HttpResponse {
     let (hash, version) = path.into_inner();
-    match Di::instance().operations().cursor(&hash, &version).await {
+    match operations.cursor(&hash, &version).await {
         Some(result) => {
             log::info!(
                 "event=cursor_hit hash={} version={} bytes={}",
@@ -186,10 +196,10 @@ fn tables_csv(tables: &[String]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use actix_web::http::StatusCode;
     use super::error_status;
-    use crate::operations::map_db_denial;
     use crate::error::CacheError;
+    use crate::operations::map_db_denial;
+    use actix_web::http::StatusCode;
 
     fn db_error(sqlstate: &str) -> CacheError {
         CacheError::Pglite(pglite::Error::Database {
@@ -228,9 +238,21 @@ mod tests {
 
     #[test]
     fn shared_errors_keep_http_semantics() {
-        assert_eq!(error_status(&CacheError::Rejected("write".into())), StatusCode::BAD_REQUEST);
-        assert_eq!(error_status(&CacheError::Unauthorized("token".into())), StatusCode::UNAUTHORIZED);
-        assert_eq!(error_status(&CacheError::Forbidden("rls".into())), StatusCode::FORBIDDEN);
-        assert_eq!(error_status(&CacheError::Halted("replica".into())), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            error_status(&CacheError::Rejected("write".into())),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            error_status(&CacheError::Unauthorized("token".into())),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            error_status(&CacheError::Forbidden("rls".into())),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            error_status(&CacheError::Halted("replica".into())),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
     }
 }
