@@ -90,7 +90,7 @@ impl PgPawBuilder {
         #[cfg(feature = "server")]
         if let Some(http) = self.http {
             let data = actix_web::web::Data::new(pgpaw.read.clone());
-            match crate::http::server::bind_at(http.addr, http.cors_origin, data) {
+            match crate::binding::http::server::bind_at(http.addr, http.cors_origin, data) {
                 Ok(server) => {
                     pgpaw.http_handle = Some(server.handle());
                     pgpaw.http_task = Some(tokio::spawn(server));
@@ -100,7 +100,7 @@ impl PgPawBuilder {
         }
         #[cfg(feature = "az-wire")]
         for config in self.az_wire {
-            let node = match crate::az_wire::register_az_wire(config.node, pgpaw.read.clone())
+            let node = match crate::binding::az_wire::register_az_wire(config.node, pgpaw.read.clone())
                 .build()
             {
                 Ok(node) => node,

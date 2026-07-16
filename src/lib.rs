@@ -1,13 +1,10 @@
 #[cfg(feature = "read")]
 mod api;
-#[cfg(feature = "az-wire")]
-mod az_wire;
+mod binding;
 #[cfg(feature = "read")]
 mod capability;
 mod db;
 mod error;
-#[cfg(feature = "server")]
-mod http;
 #[cfg(feature = "read")]
 pub mod protocol;
 #[cfg(feature = "read")]
