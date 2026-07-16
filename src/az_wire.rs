@@ -4,10 +4,10 @@ use serde_json::Value;
 
 use crate::error::CacheError;
 use crate::operations::ReadOperations;
-use crate::wire::{
+use crate::protocol::payload::{
     CursorRequest, CursorResponse, LiveEvent, LiveRequest, ReadRequest, ReadResponse,
-    CURSOR_SUBJECT, LIVE_SUBJECT, READ_SUBJECT,
 };
+use crate::protocol::subjects::{CURSOR_SUBJECT, LIVE_SUBJECT, READ_SUBJECT};
 
 pub(crate) fn register_az_wire(builder: NodeBuilder, operations: ReadOperations) -> NodeBuilder {
     use az_wire::Handler;
@@ -169,7 +169,7 @@ fn handler_error(error: CacheError) -> HandlerError {
 mod tests {
     use super::{decode_event, handler_error};
     use crate::error::CacheError;
-    use crate::wire::LiveEvent;
+    use crate::protocol::payload::LiveEvent;
     use az_wire::{ErrorCode, HostConfig, NodeBuilder, TopologyConfig};
     use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
 

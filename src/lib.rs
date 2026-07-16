@@ -30,7 +30,7 @@ mod shadow;
 #[cfg(feature = "read")]
 mod version;
 #[cfg(feature = "read")]
-pub mod wire;
+pub mod protocol;
 
 #[cfg(all(test, feature = "server"))]
 mod tests;

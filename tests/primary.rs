@@ -8,7 +8,9 @@ use futures_util::StreamExt;
 #[cfg(feature = "az-wire")]
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 #[cfg(feature = "az-wire")]
-use pgpaw::wire::{LiveEvent, LIVE_SUBJECT, READ_SUBJECT};
+use pgpaw::protocol::payload::LiveEvent;
+#[cfg(feature = "az-wire")]
+use pgpaw::protocol::subjects::{LIVE_SUBJECT, READ_SUBJECT};
 #[cfg(feature = "az-wire")]
 use pgpaw::AuthConfig;
 #[cfg(feature = "az-wire")]
