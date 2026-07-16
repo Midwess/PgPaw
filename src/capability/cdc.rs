@@ -8,7 +8,7 @@ use pglite::Replica;
 use tokio::sync::broadcast;
 
 use crate::error::CacheError;
-use crate::version::VersionIndex;
+use crate::capability::version::VersionIndex;
 
 #[derive(Clone)]
 #[allow(dead_code)]

@@ -1,7 +1,7 @@
 use actix_web::{web, HttpResponse};
 use serde_json::json;
 
-use crate::operations::ReadOperations;
+use crate::capability::read::ReadOperations;
 
 pub async fn healthz(operations: web::Data<ReadOperations>) -> HttpResponse {
     let health = operations.health();

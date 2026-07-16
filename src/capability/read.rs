@@ -6,13 +6,13 @@ use pglite::PGlite;
 #[cfg(feature = "server")]
 use pglite::Replica;
 
-use crate::auth::{Principal, Verifier};
-use crate::cache::{CachedResult, QueryCache};
-use crate::classify::{CacheableQuery, ReadClassifier};
+use crate::capability::auth::{Principal, Verifier};
+use crate::capability::cache::{CachedResult, QueryCache};
+use crate::capability::classify::{CacheableQuery, ReadClassifier};
 use crate::error::CacheError;
-use crate::live::{LiveHub, LiveSubscription};
-use crate::rows;
-use crate::version::VersionIndex;
+use crate::capability::live::{LiveHub, LiveSubscription};
+use crate::capability::rows;
+use crate::capability::version::VersionIndex;
 
 type SecurityCache = Arc<Mutex<(u64, HashMap<String, bool>)>>;
 

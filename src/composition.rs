@@ -6,14 +6,14 @@ use std::sync::Arc;
 use pglite::{MultiProcessOptions, Replica, ReplicaConfig, SslMode};
 use pglite::PGlite;
 
-use crate::auth::AuthConfig;
-use crate::cache::QueryCache;
-use crate::cdc::CdcBridge;
+use crate::capability::auth::AuthConfig;
+use crate::capability::cache::QueryCache;
+use crate::capability::cdc::CdcBridge;
 use crate::error::{CacheError, LifecycleErrorKind};
-use crate::live::LiveHub;
-use crate::operations::ReadOperations;
+use crate::capability::live::LiveHub;
+use crate::capability::read::ReadOperations;
 use crate::db::primary::PrimaryObserver;
-use crate::version::VersionIndex;
+use crate::capability::version::VersionIndex;
 
 #[cfg(feature = "server")]
 pub struct UpstreamConfig {
@@ -314,7 +314,7 @@ impl PgPawBuilder {
         log::info!("event=replication_started result=ok");
 
         let assembled = async {
-            let (replicated, pk, full) = crate::schema::scan_schema(&db).await?;
+            let (replicated, pk, full) = crate::capability::schema::scan_schema(&db).await?;
             log::info!(
                 "event=schema_scan_complete tables={} primary_key_tables={} replica_identity_full_tables={}",
                 replicated.len(),
@@ -367,7 +367,7 @@ impl PgPawBuilder {
     ) -> Result<(ReadOperations, PGlite, Option<String>, SourceShutdown), CacheError> {
         let (db, dsn) = crate::db::primary::open_primary_db(&source).await?;
         let assembled = async {
-            let (tables, pk, full) = crate::schema::scan_schema(&db).await?;
+            let (tables, pk, full) = crate::capability::schema::scan_schema(&db).await?;
             let versions = VersionIndex::new(pk.clone(), full);
             let bridge = CdcBridge::primary(versions.clone())?;
             let live = LiveHub::start(&bridge, db.clone(), Arc::new(pk));

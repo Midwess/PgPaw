@@ -8,10 +8,10 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::mpsc;
 use tokio_stream::Stream;
 
-use crate::auth::Principal;
-use crate::cdc::CdcBridge;
-use crate::diff::{diff, keyed_map, Delta};
-use crate::rows;
+use crate::capability::auth::Principal;
+use crate::capability::cdc::CdcBridge;
+use crate::capability::diff::{diff, keyed_map, Delta};
+use crate::capability::rows;
 
 struct Subscription {
     tables: Vec<String>,

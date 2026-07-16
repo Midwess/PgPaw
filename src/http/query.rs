@@ -3,10 +3,10 @@ use actix_web::{web, HttpResponse};
 use serde::Deserialize;
 use tokio_stream::StreamExt;
 
-use crate::auth::{AuthOutcome, Principal};
-use crate::classify::CacheableQuery;
+use crate::capability::auth::{AuthOutcome, Principal};
+use crate::capability::classify::CacheableQuery;
 use crate::error::CacheError;
-use crate::operations::ReadOperations;
+use crate::capability::read::ReadOperations;
 
 #[derive(Deserialize)]
 pub struct QueryParams {
@@ -82,7 +82,7 @@ pub async fn query(
 
 async fn private_response(
     operations: &ReadOperations,
-    read: &crate::operations::PreparedRead,
+    read: &crate::capability::read::PreparedRead,
     fingerprint: &str,
     tables: &str,
 ) -> HttpResponse {
@@ -102,7 +102,7 @@ async fn private_response(
                 .content_type("application/json")
                 .body(body)
         }
-        Err(error) => error_response(crate::operations::map_db_denial(error)),
+        Err(error) => error_response(crate::capability::read::map_db_denial(error)),
     }
 }
 
@@ -111,7 +111,7 @@ async fn live_query(
     query: CacheableQuery,
     principal: Option<Principal>,
 ) -> HttpResponse {
-    let read = crate::operations::PreparedRead {
+    let read = crate::capability::read::PreparedRead {
         query,
         principal,
         private: false,
@@ -198,7 +198,7 @@ fn tables_csv(tables: &[String]) -> String {
 mod tests {
     use super::error_status;
     use crate::error::CacheError;
-    use crate::operations::map_db_denial;
+    use crate::capability::read::map_db_denial;
     use actix_web::http::StatusCode;
 
     fn db_error(sqlstate: &str) -> CacheError {

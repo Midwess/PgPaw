@@ -4,10 +4,10 @@ use pglite::{CommittedTransaction, Lsn, RowChange};
 
 use serde_json::json;
 
-use crate::classify::ReadClassifier;
-use crate::diff::{diff, keyed_map, Delta};
-use crate::live::{encode, reset, up_to_date};
-use crate::version::VersionIndex;
+use crate::capability::classify::ReadClassifier;
+use crate::capability::diff::{diff, keyed_map, Delta};
+use crate::capability::live::{encode, reset, up_to_date};
+use crate::capability::version::VersionIndex;
 
 fn classifier() -> ReadClassifier {
     let mut replicated = HashSet::new();

@@ -3,7 +3,7 @@ use futures_util::StreamExt;
 use serde_json::Value;
 
 use crate::error::CacheError;
-use crate::operations::ReadOperations;
+use crate::capability::read::ReadOperations;
 use crate::protocol::payload::{
     CursorRequest, CursorResponse, LiveEvent, LiveRequest, ReadRequest, ReadResponse,
 };

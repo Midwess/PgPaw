@@ -3,7 +3,7 @@ use actix_web::middleware::Logger;
 use actix_web::{dev::Server, web, App, HttpServer};
 
 use crate::error::CacheError;
-use crate::operations::ReadOperations;
+use crate::capability::read::ReadOperations;
 
 pub(crate) fn bind_at(
     addr: std::net::SocketAddr,

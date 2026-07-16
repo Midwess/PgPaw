@@ -218,7 +218,7 @@ unsafe extern "C" {
 pub(crate) struct PrimaryObserver {
     channel: String,
     token: u64,
-    bridge: crate::cdc::CdcBridge,
+    bridge: crate::capability::cdc::CdcBridge,
 }
 
 #[cfg(feature = "read")]
@@ -226,7 +226,7 @@ impl PrimaryObserver {
     pub(crate) async fn start(
         db: &PGlite,
         tables: &std::collections::HashSet<String>,
-        bridge: crate::cdc::CdcBridge,
+        bridge: crate::capability::cdc::CdcBridge,
         security_version: Arc<AtomicU64>,
     ) -> Result<PrimaryObserver, CacheError> {
         let channel = format!("pgpaw_primary_{}", std::process::id());
