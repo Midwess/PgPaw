@@ -44,6 +44,23 @@ impl PgPaw {
         self.read.live_subscription_count()
     }
 
+    #[cfg(feature = "az-wire")]
+    pub async fn attach_az_wire(
+        &mut self,
+        node: ::az_wire::NodeBuilder,
+        topology: ::az_wire::TopologyConfig,
+    ) -> Result<(), CacheError> {
+        let node = crate::binding::az_wire::register_az_wire(node, self.read.clone())
+            .build()
+            .map_err(|error| CacheError::lifecycle(LifecycleErrorKind::Topology, error))?;
+        let topology = node
+            .start_topology(topology)
+            .await
+            .map_err(|error| CacheError::lifecycle(LifecycleErrorKind::Topology, error))?;
+        self.az_wire.push(topology);
+        Ok(())
+    }
+
     pub async fn wait(&mut self) -> Result<(), CacheError> {
         #[allow(unused_mut)]
         let mut has_bindings = false;
