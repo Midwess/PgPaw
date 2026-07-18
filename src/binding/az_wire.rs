@@ -243,9 +243,7 @@ mod tests {
     }
 
     fn websocket_host(address: SocketAddr) -> HostConfig {
-        let mut host = HostConfig::new(address);
-        host.webtransport = false;
-        host
+        HostConfig::tcp(address, ::az_wire::TcpTransport::plain())
     }
 
     fn free_address() -> SocketAddr {

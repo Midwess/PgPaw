@@ -44,10 +44,8 @@ async fn native_topologies_have_no_gross_adapter_regression() {
     let direct_result = measure(&direct).await;
 
     let public_service = service("public-service");
-    let hosting = public_service
-        .host(([127, 0, 0, 1], 0))
-        .without_webtransport()
-        .start()
+    let hosting = az_wire::HostConfig::tcp(([127, 0, 0, 1], 0), az_wire::TcpTransport::plain())
+        .start(&public_service)
         .await
         .unwrap();
     let public = caller("public-caller");

@@ -248,7 +248,10 @@ impl ServeOptions {
             Some(addr) => builder.az_wire(
                 az_wire::NodeBuilder::new(&self.az_wire_node)
                     .insecure_accept_declared_peer_identities(),
-                az_wire::TopologyConfig::host(az_wire::HostConfig::new(addr)),
+                az_wire::TopologyConfig::host(az_wire::HostConfig::tcp(
+                    addr,
+                    az_wire::TcpTransport::plain(),
+                )),
             ),
             None => builder,
         };
