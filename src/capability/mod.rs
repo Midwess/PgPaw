@@ -7,4 +7,5 @@ pub(crate) mod live;
 pub(crate) mod read;
 pub(crate) mod rows;
 pub(crate) mod schema;
+pub(crate) mod sql_validate;
 pub(crate) mod version;
