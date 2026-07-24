@@ -528,6 +528,28 @@ async fn embedded_child_reads_configured_database_and_observes_external_commits(
         matches!(update, LiveEvent::Insert { ref row, .. } if row == &json!({"id": 2, "name": "second"}))
     );
 
+    let chain = pgpaw::schema::AppChain {
+        app: "items_app".into(),
+        rel_dir: std::path::PathBuf::from("apps/items_app/migrations"),
+        files: vec![pgpaw::schema::MigrationFile {
+            filename: "0001_rename.sql".into(),
+            ordinal: 1,
+            sql: "UPDATE items SET name = 'renamed' WHERE id = 2".into(),
+            checksum: pgpaw::schema::content_hash("UPDATE items SET name = 'renamed' WHERE id = 2"),
+        }],
+    };
+    pgpaw.schema_ops().apply_migrations("w", &[chain]).await.unwrap();
+    let migrated = tokio::time::timeout(std::time::Duration::from_secs(5), live.next())
+        .await
+        .expect("a schema-ops migration commit wakes the live subscription")
+        .unwrap()
+        .unwrap();
+    let migrated: LiveEvent = serde_json::from_slice(&migrated).unwrap();
+    assert!(
+        matches!(migrated, LiveEvent::Update { ref row, .. } if row == &json!({"id": 2, "name": "renamed"})),
+        "{migrated:?}"
+    );
+
     drop(live);
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
         while pgpaw.live_subscription_count() != 0 {
