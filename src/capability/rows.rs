@@ -173,6 +173,7 @@ pub async fn run_sql_as(
     validated: &crate::capability::sql_validate::ValidatedSql,
     sql: &str,
     params: &[serde_json::Value],
+    max_result_bytes: usize,
 ) -> Result<SqlOutcome, CacheError> {
     let boxed = to_sql_params(params);
     let refs: Vec<&(dyn pglite::ToSql + Sync)> = boxed
@@ -227,6 +228,7 @@ pub async fn run_sql_as(
                 ));
             }
             let rows_json = body.unwrap_or_else(|| "[]".to_string());
+            check_result_bound(&rows_json, max_result_bytes)?;
             return Ok(SqlOutcome {
                 rows_json,
                 rows_affected: 0,
@@ -245,6 +247,7 @@ pub async fn run_sql_as(
                 None => None,
             };
             let rows_json = body.unwrap_or_else(|| "[]".to_string());
+            check_result_bound(&rows_json, max_result_bytes)?;
             let affected = serde_json::from_str::<serde_json::Value>(&rows_json)
                 .ok()
                 .and_then(|value| value.as_array().map(|rows| rows.len() as u64))
@@ -283,6 +286,17 @@ pub async fn run_sql_as(
             Err(error)
         }
     }
+}
+
+fn check_result_bound(rows_json: &str, max_result_bytes: usize) -> Result<(), CacheError> {
+    if rows_json.len() > max_result_bytes {
+        return Err(CacheError::Rejected(format!(
+            "result is {} bytes; the advertised bound is {max_result_bytes} — nothing was \
+             committed; narrow the query or paginate with LIMIT/OFFSET",
+            rows_json.len()
+        )));
+    }
+    Ok(())
 }
 
 fn sql_literal(value: &str) -> String {

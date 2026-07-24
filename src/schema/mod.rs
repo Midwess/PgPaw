@@ -285,6 +285,26 @@ impl SchemaOps {
                 tx.query("DROP TABLE applied_app_migrations", &[]).await?;
             }
             if legacy_schemas {
+                let conflicts: i64 = tx
+                    .query(
+                        "SELECT count(*)::int8 FROM app_schemas legacy \
+                         JOIN pgpaw_app_schemas new \
+                           ON new.world_id = legacy.world_id AND new.app = legacy.app \
+                         WHERE new.tables IS DISTINCT FROM coalesce(legacy.tables, '[]'::jsonb)",
+                        &[],
+                    )
+                    .await?
+                    .first()
+                    .map(|row| row.get::<Option<i64>>(0))
+                    .transpose()?
+                    .flatten()
+                    .unwrap_or(0);
+                if conflicts > 0 {
+                    return Err(CacheError::Rejected(format!(
+                        "ledger handoff found {conflicts} schema rows whose tables disagree \
+                         with already-migrated rows; resolve before retrying"
+                    )));
+                }
                 tx.query(
                     "INSERT INTO pgpaw_app_schemas (world_id, app, tables, applied_at) \
                      SELECT world_id, app, coalesce(tables, '[]'::jsonb), applied_at FROM app_schemas \

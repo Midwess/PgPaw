@@ -75,24 +75,18 @@ impl SqlOperations {
                     .to_string(),
             ));
         }
-        let outcome = rows::run_sql_as(&self.db, &role, claims, headers, &validated, sql, params)
-            .await
-            .map_err(map_db_denial)?;
-        if outcome.rows_json.len() > MAX_RESULT_BYTES {
-            if validated.command == "SELECT" {
-                return Err(CacheError::Rejected(format!(
-                    "result is {} bytes; the advertised bound is {MAX_RESULT_BYTES} — narrow the \
-                     query or paginate with LIMIT/OFFSET",
-                    outcome.rows_json.len()
-                )));
-            }
-            return Err(CacheError::Rejected(format!(
-                "the statement committed, but its RETURNING payload is {} bytes over the \
-                 {MAX_RESULT_BYTES}-byte bound — do not retry the write; refetch the rows with \
-                 a narrower SELECT",
-                outcome.rows_json.len() - MAX_RESULT_BYTES
-            )));
-        }
+        let outcome = rows::run_sql_as(
+            &self.db,
+            &role,
+            claims,
+            headers,
+            &validated,
+            sql,
+            params,
+            MAX_RESULT_BYTES,
+        )
+        .await
+        .map_err(map_db_denial)?;
         Ok(SqlOutcome {
             command: validated.command,
             rows_json: outcome.rows_json,
@@ -109,7 +103,10 @@ impl SqlOperations {
         let rows = self
             .db
             .query(
-                "SELECT rolsuper::int FROM pg_roles WHERE rolname = $1",
+                "SELECT rolsuper::int, rolbypassrls::int, \
+                        (pg_has_role(rolname, (SELECT datdba FROM pg_database \
+                                               WHERE datname = current_database()), 'member'))::int \
+                 FROM pg_roles WHERE rolname = $1",
                 &[&role],
             )
             .await?;
@@ -118,6 +115,20 @@ impl SqlOperations {
             if superuser == 1 {
                 return Err(CacheError::Forbidden(
                     "public SQL never executes as a superuser role".to_string(),
+                ));
+            }
+            let bypass_rls: i32 = row.get(1)?;
+            if bypass_rls == 1 {
+                return Err(CacheError::Forbidden(
+                    "public SQL never executes as a role that bypasses row-level security"
+                        .to_string(),
+                ));
+            }
+            let owns_database: i32 = row.get(2)?;
+            if owns_database == 1 {
+                return Err(CacheError::Forbidden(
+                    "public SQL never executes as the database owner or a member of it"
+                        .to_string(),
                 ));
             }
         }
