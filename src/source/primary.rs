@@ -21,6 +21,21 @@ pub(crate) async fn build_primary_core(
 ) -> Result<(ReadOperations, PGlite, Option<String>, SourceShutdown), CacheError> {
     let (db, dsn) = crate::db::primary::open_primary_db(&source).await?;
     let assembled = async {
+        db.exec(
+            "DO $$ BEGIN \
+               IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'pgpaw_public') THEN \
+                 CREATE ROLE pgpaw_public NOLOGIN NOBYPASSRLS; \
+               END IF; \
+             END $$; \
+             GRANT USAGE ON SCHEMA public TO pgpaw_public; \
+             GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO pgpaw_public; \
+             GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO pgpaw_public; \
+             ALTER DEFAULT PRIVILEGES IN SCHEMA public \
+               GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO pgpaw_public; \
+             ALTER DEFAULT PRIVILEGES IN SCHEMA public \
+               GRANT USAGE, SELECT ON SEQUENCES TO pgpaw_public",
+        )
+        .await?;
         let (tables, pk, full) = crate::capability::schema::scan_schema(&db).await?;
         let versions = VersionIndex::new(pk.clone(), full);
         let bridge = CdcBridge::primary(versions.clone())?;

@@ -310,7 +310,7 @@ async fn embedded_child_reads_configured_database_and_observes_external_commits(
             let _ = connection.await;
         });
         client.batch_execute("CREATE TABLE items (id int primary key, name text); GRANT SELECT ON items TO PUBLIC; INSERT INTO items VALUES (1, 'first')").await.unwrap();
-        client.batch_execute("CREATE ROLE pgpaw_public; GRANT SELECT ON items TO pgpaw_public; CREATE TABLE notes (id int primary key, body text); GRANT SELECT, INSERT, UPDATE, DELETE ON notes TO pgpaw_public").await.unwrap();
+        client.batch_execute("GRANT SELECT ON items TO pgpaw_public; CREATE TABLE notes (id int primary key, body text); GRANT SELECT, INSERT, UPDATE, DELETE ON notes TO pgpaw_public").await.unwrap();
         client.batch_execute("CREATE ROLE authenticated; CREATE TABLE private_items (id int primary key, owner int, name text); ALTER TABLE private_items ENABLE ROW LEVEL SECURITY; GRANT SELECT ON private_items TO authenticated; CREATE POLICY private_owner ON private_items FOR SELECT TO authenticated USING (owner = ((current_setting('request.jwt.claims', true))::jsonb ->> 'owner')::int); INSERT INTO private_items VALUES (1, 7, 'allowed'), (2, 8, 'denied')").await.unwrap();
         drop(client);
         connection.abort();
@@ -438,13 +438,16 @@ async fn embedded_child_reads_configured_database_and_observes_external_commits(
         .send(&parent)
         .await
         .is_err());
-    assert!(
-        http::Request::post(format!("/{SQL_SUBJECT}"))
-            .body(json!({"sql": "SELECT id FROM private_items", "bearer": null}))
-            .send(&parent)
-            .await
-            .is_err(),
-        "RLS denies the neutral public role"
+    let anon_private = http::Request::post(format!("/{SQL_SUBJECT}"))
+        .body(json!({"sql": "SELECT id FROM private_items", "bearer": null}))
+        .send(&parent)
+        .await
+        .unwrap();
+    let anon_private: serde_json::Value = serde_json::from_slice(anon_private.body()).unwrap();
+    assert_eq!(
+        anon_private["rows"],
+        json!([]),
+        "row security hides every private row from the neutral public role"
     );
 
     client
