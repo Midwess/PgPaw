@@ -133,15 +133,31 @@ fn check_destructive_acknowledged(
     rel_dir: &Path,
     file: &MigrationFile,
 ) -> Result<(), CacheError> {
-    let lowered = file.sql.to_lowercase();
-    let destructive = lowered.contains("drop table")
-        || lowered.contains("drop column")
-        || (lowered.contains("alter table") && lowered.contains(" drop "));
-    if destructive && !lowered.contains(DESTRUCTIVE_ACK) {
+    use sqlparser::ast::{AlterTableOperation, ObjectType, Statement};
+    let destructive = match sqlparser::parser::Parser::parse_sql(
+        &sqlparser::dialect::PostgreSqlDialect {},
+        &file.sql,
+    ) {
+        Ok(statements) => statements.iter().any(|statement| match statement {
+            Statement::Drop { object_type, .. } => matches!(object_type, ObjectType::Table),
+            Statement::Truncate { .. } => true,
+            Statement::AlterTable { operations, .. } => operations
+                .iter()
+                .any(|op| matches!(op, AlterTableOperation::DropColumn { .. })),
+            _ => false,
+        }),
+        Err(_) => {
+            let lowered = file.sql.to_lowercase();
+            lowered.contains("drop table")
+                || lowered.contains("drop column")
+                || lowered.contains("truncate ")
+        }
+    };
+    if destructive && !file.sql.to_lowercase().contains(DESTRUCTIVE_ACK) {
         return Err(CacheError::Rejected(format!(
-            "{}/{} contains a destructive contraction (DROP TABLE / DROP COLUMN); schema \
-             evolution is expand/contract — confirm every run and snapshot depending on the \
-             prior schema has retired, then acknowledge by adding the comment \
+            "{}/{} contains a destructive contraction (DROP TABLE / DROP COLUMN / TRUNCATE); \
+             schema evolution is expand/contract — confirm every run and snapshot depending on \
+             the prior schema has retired, then acknowledge by adding the comment \
              `-- {DESTRUCTIVE_ACK}` to this migration file",
             rel_dir.display(),
             file.filename

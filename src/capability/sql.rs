@@ -79,10 +79,18 @@ impl SqlOperations {
             .await
             .map_err(map_db_denial)?;
         if outcome.rows_json.len() > MAX_RESULT_BYTES {
+            if validated.command == "SELECT" {
+                return Err(CacheError::Rejected(format!(
+                    "result is {} bytes; the advertised bound is {MAX_RESULT_BYTES} — narrow the \
+                     query or paginate with LIMIT/OFFSET",
+                    outcome.rows_json.len()
+                )));
+            }
             return Err(CacheError::Rejected(format!(
-                "result is {} bytes; the advertised bound is {MAX_RESULT_BYTES} — narrow the \
-                 query or paginate with LIMIT/OFFSET",
-                outcome.rows_json.len()
+                "the statement committed, but its RETURNING payload is {} bytes over the \
+                 {MAX_RESULT_BYTES}-byte bound — do not retry the write; refetch the rows with \
+                 a narrower SELECT",
+                outcome.rows_json.len() - MAX_RESULT_BYTES
             )));
         }
         Ok(SqlOutcome {

@@ -180,6 +180,11 @@ pub async fn run_sql_as(
         .map(|param| param.as_ref() as &(dyn pglite::ToSql + Sync))
         .collect();
     let tx = db.transaction().await?;
+    tx.query(
+        &format!("SET LOCAL statement_timeout = '{}s'", crate::capability::sql::SQL_DEADLINE_SECS),
+        &[],
+    )
+    .await?;
     if let Some(claims) = claims {
         tx.query(
             &format!("SET LOCAL request.jwt.claims = {}", sql_literal(claims)),
@@ -198,29 +203,29 @@ pub async fn run_sql_as(
         .await?;
     let outcome = async {
         if validated.command == "SELECT" {
-            let probe = tx
-                .query(
-                    &format!("select * from ({sql}) _pgpaw_cols limit 1"),
-                    &refs,
-                )
-                .await?;
-            if let Some(row) = probe.first() {
-                let mut seen = HashSet::new();
-                for column in row.columns() {
-                    if !seen.insert(column.name().to_ascii_lowercase()) {
-                        return Err(CacheError::Rejected(format!(
-                            "result has more than one column named `{}`; alias the columns so \
-                             each output name is unique",
-                            column.name()
-                        )));
-                    }
-                }
-            }
-            let rows = tx.query(&wrap_json(sql), &refs).await?;
-            let body = match rows.first() {
-                Some(row) => row.get::<Option<String>>(0)?,
-                None => None,
+            let wrapped = format!(
+                "WITH _pgpaw_q AS ({sql}), \
+                 _pgpaw_rows AS ( \
+                   SELECT to_jsonb(_pgpaw_q) AS r, \
+                          (SELECT count(*) FROM json_object_keys(row_to_json(_pgpaw_q))) AS total, \
+                          (SELECT count(*) FROM jsonb_object_keys(to_jsonb(_pgpaw_q))) AS distinct_keys \
+                   FROM _pgpaw_q) \
+                 SELECT coalesce(jsonb_agg(r), '[]'::jsonb)::text AS j, \
+                        coalesce(bool_or(total <> distinct_keys), false) AS duplicated \
+                 FROM _pgpaw_rows"
+            );
+            let rows = tx.query(&wrapped, &refs).await?;
+            let (body, duplicated) = match rows.first() {
+                Some(row) => (row.get::<Option<String>>(0)?, row.get::<Option<bool>>(1)?),
+                None => (None, None),
             };
+            if duplicated.unwrap_or(false) {
+                return Err(CacheError::Rejected(
+                    "result has more than one column with the same name; alias the columns so \
+                     each output name is unique"
+                        .into(),
+                ));
+            }
             let rows_json = body.unwrap_or_else(|| "[]".to_string());
             return Ok(SqlOutcome {
                 rows_json,
