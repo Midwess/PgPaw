@@ -8,6 +8,7 @@ mod error;
 #[cfg(feature = "read")]
 pub mod protocol;
 pub mod schema;
+pub use capability::sql::{SqlOperations, SqlOutcome};
 #[cfg(feature = "read")]
 mod source;
 
