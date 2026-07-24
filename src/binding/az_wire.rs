@@ -30,7 +30,7 @@ async fn sql(
         .map_err(handler_error)?;
     let outcome = tokio::time::timeout(
         std::time::Duration::from_secs(SQL_DEADLINE_SECS),
-        operations.execute(&request.sql, &request.params, principal),
+        operations.execute(&request.sql, &request.params, principal, None),
     )
     .await
     .map_err(|_| {

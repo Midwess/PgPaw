@@ -169,6 +169,7 @@ pub async fn run_sql_as(
     db: &PGlite,
     role: &str,
     claims: Option<&str>,
+    headers: Option<&str>,
     validated: &crate::capability::sql_validate::ValidatedSql,
     sql: &str,
     params: &[serde_json::Value],
@@ -182,6 +183,13 @@ pub async fn run_sql_as(
     if let Some(claims) = claims {
         tx.query(
             &format!("SET LOCAL request.jwt.claims = {}", sql_literal(claims)),
+            &[],
+        )
+        .await?;
+    }
+    if let Some(headers) = headers {
+        tx.query(
+            &format!("SET LOCAL request.headers = {}", sql_literal(headers)),
             &[],
         )
         .await?;

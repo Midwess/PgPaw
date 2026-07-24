@@ -60,6 +60,7 @@ impl SqlOperations {
         sql: &str,
         params: &[serde_json::Value],
         principal: Option<Principal>,
+        headers: Option<&str>,
     ) -> Result<SqlOutcome, CacheError> {
         let validated = sql_validate::validate_one_statement(sql, MAX_SQL_BYTES)?;
         let (role, claims) = match &principal {
@@ -74,7 +75,7 @@ impl SqlOperations {
                     .to_string(),
             ));
         }
-        let outcome = rows::run_sql_as(&self.db, &role, claims, &validated, sql, params)
+        let outcome = rows::run_sql_as(&self.db, &role, claims, headers, &validated, sql, params)
             .await
             .map_err(map_db_denial)?;
         if outcome.rows_json.len() > MAX_RESULT_BYTES {
