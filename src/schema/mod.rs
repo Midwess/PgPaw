@@ -127,6 +127,29 @@ pub fn discover_migrations(
     Ok((chains, warnings))
 }
 
+pub const DESTRUCTIVE_ACK: &str = "pgpaw: acknowledge-destructive";
+
+fn check_destructive_acknowledged(
+    rel_dir: &Path,
+    file: &MigrationFile,
+) -> Result<(), CacheError> {
+    let lowered = file.sql.to_lowercase();
+    let destructive = lowered.contains("drop table")
+        || lowered.contains("drop column")
+        || (lowered.contains("alter table") && lowered.contains(" drop "));
+    if destructive && !lowered.contains(DESTRUCTIVE_ACK) {
+        return Err(CacheError::Rejected(format!(
+            "{}/{} contains a destructive contraction (DROP TABLE / DROP COLUMN); schema \
+             evolution is expand/contract — confirm every run and snapshot depending on the \
+             prior schema has retired, then acknowledge by adding the comment \
+             `-- {DESTRUCTIVE_ACK}` to this migration file",
+            rel_dir.display(),
+            file.filename
+        )));
+    }
+    Ok(())
+}
+
 pub fn content_hash(source: &str) -> String {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in source.as_bytes() {
@@ -307,6 +330,24 @@ impl SchemaOps {
         let mut applied = Vec::new();
         let mut already_applied = 0;
         for chain in chains {
+            let ledger = self
+                .db
+                .query(
+                    "SELECT filename FROM pgpaw_applied_migrations \
+                     WHERE world_id = $1 AND app = $2 ORDER BY filename",
+                    &[&world_id, &chain.app.as_str()],
+                )
+                .await?;
+            for row in &ledger {
+                let filename: String = row.get(0)?;
+                if !chain.files.iter().any(|file| file.filename == filename) {
+                    return Err(CacheError::Rejected(format!(
+                        "{}/{filename} is applied but missing on disk (renamed or deleted); \
+                         applied statements never re-execute — restore the file",
+                        chain.rel_dir.display()
+                    )));
+                }
+            }
             for file in &chain.files {
                 let existing = self
                     .db
@@ -331,6 +372,7 @@ impl SchemaOps {
                     already_applied += 1;
                     continue;
                 }
+                check_destructive_acknowledged(&chain.rel_dir, file)?;
                 let tx = self.db.transaction().await?;
                 let outcome: Result<(), CacheError> = async {
                     tx.exec(&file.sql).await?;
