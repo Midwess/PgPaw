@@ -7,6 +7,7 @@ mod db;
 mod error;
 #[cfg(feature = "read")]
 pub mod protocol;
+pub mod schema;
 #[cfg(feature = "read")]
 mod source;
 

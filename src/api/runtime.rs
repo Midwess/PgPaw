@@ -41,6 +41,10 @@ impl std::fmt::Debug for PgPaw {
 }
 
 impl PgPaw {
+    pub fn schema_ops(&self) -> crate::schema::SchemaOps {
+        crate::schema::SchemaOps::new(self.db.clone())
+    }
+
     pub fn primary_dsn(&self) -> Option<&str> {
         self.dsn.as_deref()
     }
