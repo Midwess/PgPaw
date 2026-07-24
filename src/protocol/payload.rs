@@ -3,28 +3,19 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Debug, Deserialize, JsonSchema)]
-pub struct ReadRequest {
+pub struct SqlRequest {
     pub sql: String,
+    #[serde(default)]
+    pub params: Vec<Value>,
     pub bearer: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
-#[serde(tag = "scope", rename_all = "snake_case")]
-pub enum ReadResponse {
-    Public { hash: String, version: u64 },
-    Private { rows: Value, version: u64 },
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-pub struct CursorRequest {
-    pub hash: String,
-    pub version: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
-pub struct CursorResponse {
-    pub etag: String,
+#[serde(rename_all = "camelCase")]
+pub struct SqlReply {
+    pub command: String,
     pub rows: Value,
+    pub rows_affected: u64,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -70,19 +61,20 @@ pub struct WireError {
 
 #[cfg(test)]
 mod tests {
-    use super::{LiveEvent, ReadResponse};
+    use super::{LiveEvent, SqlReply};
     use serde_json::json;
 
     #[test]
-    fn read_response_has_explicit_scope() {
-        let value = serde_json::to_value(ReadResponse::Public {
-            hash: "abc".to_string(),
-            version: 4,
+    fn sql_reply_is_camel_case_json() {
+        let value = serde_json::to_value(SqlReply {
+            command: "SELECT".to_string(),
+            rows: json!([]),
+            rows_affected: 0,
         })
         .unwrap();
         assert_eq!(
             value,
-            json!({"scope": "public", "hash": "abc", "version": 4})
+            json!({"command": "SELECT", "rows": [], "rowsAffected": 0})
         );
     }
 

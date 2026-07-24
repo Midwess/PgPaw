@@ -22,6 +22,7 @@ pub struct AuthConfig {
     pub jwt_public_key: Option<String>,
     pub jwt_jwks_url: Option<String>,
     pub role_claim: Option<String>,
+    pub sql_public_role: Option<String>,
 }
 
 impl AuthConfig {

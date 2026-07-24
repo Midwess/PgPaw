@@ -10,7 +10,7 @@ use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 #[cfg(feature = "az-wire")]
 use pgpaw::protocol::payload::LiveEvent;
 #[cfg(feature = "az-wire")]
-use pgpaw::protocol::subjects::{LIVE_SUBJECT, READ_SUBJECT};
+use pgpaw::protocol::subjects::{LIVE_SUBJECT, SQL_SUBJECT};
 #[cfg(feature = "az-wire")]
 use pgpaw::AuthConfig;
 #[cfg(feature = "az-wire")]
@@ -310,6 +310,7 @@ async fn embedded_child_reads_configured_database_and_observes_external_commits(
             let _ = connection.await;
         });
         client.batch_execute("CREATE TABLE items (id int primary key, name text); GRANT SELECT ON items TO PUBLIC; INSERT INTO items VALUES (1, 'first')").await.unwrap();
+        client.batch_execute("CREATE ROLE pgpaw_public; GRANT SELECT ON items TO pgpaw_public; CREATE TABLE notes (id int primary key, body text); GRANT SELECT, INSERT, UPDATE, DELETE ON notes TO pgpaw_public").await.unwrap();
         client.batch_execute("CREATE ROLE authenticated; CREATE TABLE private_items (id int primary key, owner int, name text); ALTER TABLE private_items ENABLE ROW LEVEL SECURITY; GRANT SELECT ON private_items TO authenticated; CREATE POLICY private_owner ON private_items FOR SELECT TO authenticated USING (owner = ((current_setting('request.jwt.claims', true))::jsonb ->> 'owner')::int); INSERT INTO private_items VALUES (1, 7, 'allowed'), (2, 8, 'denied')").await.unwrap();
         drop(client);
         connection.abort();
@@ -339,7 +340,7 @@ async fn embedded_child_reads_configured_database_and_observes_external_commits(
     });
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
         loop {
-            if parent.reachable_names() == ["pgpaw.cursor", "pgpaw.live", "pgpaw.read"] {
+            if parent.reachable_names() == ["pgpaw.live", "pgpaw.sql"] {
                 break;
             }
             tokio::task::yield_now().await;
@@ -348,21 +349,76 @@ async fn embedded_child_reads_configured_database_and_observes_external_commits(
     .await
     .unwrap();
 
-    let read = http::Request::post(format!("/{READ_SUBJECT}"))
+    let read = http::Request::post(format!("/{SQL_SUBJECT}"))
         .body(json!({"sql": "SELECT id, name FROM items ORDER BY id", "bearer": null}))
         .send(&parent)
         .await
         .unwrap();
     let read: serde_json::Value = serde_json::from_slice(read.body()).unwrap();
-    let version = read["version"].as_u64().unwrap();
-    let hash = read["hash"].as_str().unwrap();
-    let cursor = http::Request::post("/pgpaw.cursor")
-        .body(json!({"hash": hash, "version": version.to_string()}))
+    assert_eq!(read["command"], "SELECT");
+    assert_eq!(read["rows"], json!([{"id": 1, "name": "first"}]));
+    assert_eq!(read["rowsAffected"], 0);
+
+    let insert = http::Request::post(format!("/{SQL_SUBJECT}"))
+        .body(json!({"sql": "INSERT INTO notes (id, body) VALUES ($1, $2)", "params": [1, "hello"], "bearer": null}))
         .send(&parent)
         .await
         .unwrap();
-    let cursor: serde_json::Value = serde_json::from_slice(cursor.body()).unwrap();
-    assert_eq!(cursor["rows"], json!([{"id": 1, "name": "first"}]));
+    let insert: serde_json::Value = serde_json::from_slice(insert.body()).unwrap();
+    assert_eq!(insert["command"], "INSERT");
+    assert_eq!(insert["rows"], json!([]));
+    assert_eq!(insert["rowsAffected"], 1);
+
+    let update = http::Request::post(format!("/{SQL_SUBJECT}"))
+        .body(json!({"sql": "UPDATE notes SET body = $1 WHERE id = $2 RETURNING id, body", "params": ["updated", 1], "bearer": null}))
+        .send(&parent)
+        .await
+        .unwrap();
+    let update: serde_json::Value = serde_json::from_slice(update.body()).unwrap();
+    assert_eq!(update["command"], "UPDATE");
+    assert_eq!(update["rows"], json!([{"id": 1, "body": "updated"}]));
+    assert_eq!(update["rowsAffected"], 1);
+
+    assert!(
+        http::Request::post(format!("/{SQL_SUBJECT}"))
+            .body(json!({"sql": "CREATE TABLE anon_ddl (id int)", "bearer": null}))
+            .send(&parent)
+            .await
+            .is_err(),
+        "the neutral public role cannot run DDL"
+    );
+    assert!(
+        http::Request::post(format!("/{SQL_SUBJECT}"))
+            .body(json!({"sql": "SELECT 1; SELECT 2", "bearer": null}))
+            .send(&parent)
+            .await
+            .is_err(),
+        "multi-statement text is rejected"
+    );
+    assert!(
+        http::Request::post(format!("/{SQL_SUBJECT}"))
+            .body(json!({"sql": "BEGIN", "bearer": null}))
+            .send(&parent)
+            .await
+            .is_err(),
+        "transaction control is rejected"
+    );
+    assert!(
+        http::Request::post(format!("/{SQL_SUBJECT}"))
+            .body(json!({"sql": "SELECT n.id, m.id FROM notes n JOIN notes m ON m.id = n.id", "bearer": null}))
+            .send(&parent)
+            .await
+            .is_err(),
+        "duplicate output columns are rejected"
+    );
+    assert!(
+        http::Request::post(format!("/{SQL_SUBJECT}"))
+            .body(json!({"sql": "DELETE FROM notes WHERE id = 1 RETURNING id, body AS id", "bearer": null}))
+            .send(&parent)
+            .await
+            .is_err(),
+        "duplicate RETURNING names are rejected statically"
+    );
 
     let token = encode(
         &Header::new(Algorithm::HS256),
@@ -370,60 +426,80 @@ async fn embedded_child_reads_configured_database_and_observes_external_commits(
         &EncodingKey::from_secret(b"embedded-secret"),
     )
     .unwrap();
-    let protected = http::Request::post(format!("/{READ_SUBJECT}"))
+    let protected = http::Request::post(format!("/{SQL_SUBJECT}"))
         .body(json!({"sql": "SELECT id, name FROM private_items ORDER BY id", "bearer": token}))
         .send(&parent)
         .await
         .unwrap();
     let protected: serde_json::Value = serde_json::from_slice(protected.body()).unwrap();
     assert_eq!(protected["rows"], json!([{"id": 1, "name": "allowed"}]));
-    assert!(http::Request::post(format!("/{READ_SUBJECT}"))
+    assert!(http::Request::post(format!("/{SQL_SUBJECT}"))
         .body(json!({"sql": "SELECT id FROM private_items", "bearer": "invalid"}))
         .send(&parent)
         .await
         .is_err());
-    assert!(http::Request::post(format!("/{READ_SUBJECT}"))
-        .body(json!({"sql": "SELECT id FROM private_items", "bearer": null}))
-        .send(&parent)
-        .await
-        .is_err());
+    assert!(
+        http::Request::post(format!("/{SQL_SUBJECT}"))
+            .body(json!({"sql": "SELECT id FROM private_items", "bearer": null}))
+            .send(&parent)
+            .await
+            .is_err(),
+        "RLS denies the neutral public role"
+    );
 
     client
-        .batch_execute("REVOKE SELECT ON items FROM PUBLIC")
+        .batch_execute("REVOKE SELECT ON items FROM pgpaw_public, PUBLIC")
         .await
         .unwrap();
-    assert!(http::Request::post(format!("/{READ_SUBJECT}"))
-        .body(json!({"sql": "SELECT id FROM items", "bearer": null}))
-        .send(&parent)
-        .await
-        .is_err());
+    assert!(
+        http::Request::post(format!("/{SQL_SUBJECT}"))
+            .body(json!({"sql": "SELECT id FROM items", "bearer": null}))
+            .send(&parent)
+            .await
+            .is_err(),
+        "revoked privilege denies the public role"
+    );
     client
-        .batch_execute("GRANT SELECT ON items TO PUBLIC")
+        .batch_execute("GRANT SELECT ON items TO pgpaw_public, PUBLIC")
         .await
         .unwrap();
-    assert!(http::Request::post(format!("/{READ_SUBJECT}"))
+    assert!(http::Request::post(format!("/{SQL_SUBJECT}"))
         .body(json!({"sql": "SELECT id FROM items", "bearer": null}))
         .send(&parent)
         .await
         .is_ok());
-    client
-        .batch_execute("ALTER TABLE items ENABLE ROW LEVEL SECURITY")
-        .await
-        .unwrap();
-    assert!(http::Request::post(format!("/{READ_SUBJECT}"))
-        .body(json!({"sql": "SELECT id FROM items", "bearer": null}))
+
+    let empty = http::Request::post(format!("/{SQL_SUBJECT}"))
+        .body(json!({"sql": "SELECT id, body FROM notes WHERE id = 999", "bearer": null}))
         .send(&parent)
         .await
-        .is_err());
-    client
-        .batch_execute("ALTER TABLE items DISABLE ROW LEVEL SECURITY")
-        .await
         .unwrap();
-    assert!(http::Request::post(format!("/{READ_SUBJECT}"))
-        .body(json!({"sql": "SELECT id FROM items", "bearer": null}))
+    let empty: serde_json::Value = serde_json::from_slice(empty.body()).unwrap();
+    assert_eq!(empty["rows"], json!([]));
+    assert_eq!(empty["rowsAffected"], 0);
+
+    let nulls = http::Request::post(format!("/{SQL_SUBJECT}"))
+        .body(json!({"sql": "SELECT NULL::text AS missing, 42 AS n", "bearer": null}))
         .send(&parent)
         .await
-        .is_ok());
+        .unwrap();
+    let nulls: serde_json::Value = serde_json::from_slice(nulls.body()).unwrap();
+    assert_eq!(nulls["rows"], json!([{"missing": null, "n": 42}]));
+
+    let owner_token = encode(
+        &Header::new(Algorithm::HS256),
+        &json!({"role": "postgres", "exp": 4_102_444_800u64}),
+        &EncodingKey::from_secret(b"embedded-secret"),
+    )
+    .unwrap();
+    assert!(
+        http::Request::post(format!("/{SQL_SUBJECT}"))
+            .body(json!({"sql": "SELECT 1", "bearer": owner_token}))
+            .send(&parent)
+            .await
+            .is_err(),
+        "the engine owner role never serves public SQL"
+    );
 
     let mut live = parent
         .subscribe(

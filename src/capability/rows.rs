@@ -63,20 +63,106 @@ pub fn to_sql_params(
 ) -> Vec<Box<dyn pglite::ToSql + Sync + Send>> {
     params
         .iter()
-        .map(|param| -> Box<dyn pglite::ToSql + Sync + Send> {
-            match param {
-                serde_json::Value::Null => Box::new(Option::<String>::None),
-                serde_json::Value::Bool(b) => Box::new(*b),
-                serde_json::Value::Number(n) => match (n.as_i64(), n.as_f64()) {
-                    (Some(i), _) => Box::new(i),
-                    (None, Some(f)) => Box::new(f),
-                    (None, None) => Box::new(n.to_string()),
-                },
-                serde_json::Value::String(s) => Box::new(s.clone()),
-                other => Box::new(other.to_string()),
-            }
-        })
+        .map(|param| -> Box<dyn pglite::ToSql + Sync + Send> { Box::new(JsonParam(param.clone())) })
         .collect()
+}
+
+#[derive(Debug)]
+pub struct JsonParam(pub serde_json::Value);
+
+impl pglite::ToSql for JsonParam {
+    fn to_sql(
+        &self,
+        ty: &postgres_types::Type,
+        out: &mut bytes::BytesMut,
+    ) -> Result<postgres_types::IsNull, Box<dyn std::error::Error + Sync + Send>> {
+        use postgres_types::{IsNull, Type};
+        use serde_json::Value;
+        if matches!(self.0, Value::Null) {
+            return Ok(IsNull::Yes);
+        }
+        match *ty {
+            Type::BOOL => match &self.0 {
+                Value::Bool(b) => b.to_sql(ty, out),
+                other => text_error(other, ty),
+            },
+            Type::INT2 => integer(&self.0, ty)?.map_or_else(
+                || text_error(&self.0, ty),
+                |i| i16::try_from(i).map_err(box_error)?.to_sql(ty, out),
+            ),
+            Type::INT4 => integer(&self.0, ty)?.map_or_else(
+                || text_error(&self.0, ty),
+                |i| i32::try_from(i).map_err(box_error)?.to_sql(ty, out),
+            ),
+            Type::INT8 => integer(&self.0, ty)?.map_or_else(
+                || text_error(&self.0, ty),
+                |i| i.to_sql(ty, out),
+            ),
+            Type::FLOAT4 => match self.0.as_f64() {
+                Some(f) => (f as f32).to_sql(ty, out),
+                None => text_error(&self.0, ty),
+            },
+            Type::FLOAT8 => match self.0.as_f64() {
+                Some(f) => f.to_sql(ty, out),
+                None => text_error(&self.0, ty),
+            },
+            Type::TEXT | Type::VARCHAR | Type::BPCHAR | Type::NAME | Type::UNKNOWN => {
+                match &self.0 {
+                    Value::String(s) => s.as_str().to_sql(ty, out),
+                    other => other.to_string().to_sql(ty, out),
+                }
+            }
+            Type::JSON => {
+                out.extend_from_slice(serialized(&self.0).as_bytes());
+                Ok(IsNull::No)
+            }
+            Type::JSONB => {
+                out.extend_from_slice(&[1]);
+                out.extend_from_slice(serialized(&self.0).as_bytes());
+                Ok(IsNull::No)
+            }
+            ref other => Err(format!(
+                "a JSON parameter cannot bind to PostgreSQL type `{other}`; bind it as text and                  cast in SQL, e.g. ($1::text)::{other}"
+            )
+            .into()),
+        }
+    }
+
+    fn accepts(_: &postgres_types::Type) -> bool {
+        true
+    }
+
+    postgres_types::to_sql_checked!();
+}
+
+fn integer(
+    value: &serde_json::Value,
+    _ty: &postgres_types::Type,
+) -> Result<Option<i64>, Box<dyn std::error::Error + Sync + Send>> {
+    Ok(value.as_i64())
+}
+
+fn serialized(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(s) => s.clone(),
+        other => other.to_string(),
+    }
+}
+
+fn text_error(
+    value: &serde_json::Value,
+    ty: &postgres_types::Type,
+) -> Result<postgres_types::IsNull, Box<dyn std::error::Error + Sync + Send>> {
+    Err(format!(
+        "JSON parameter {value} cannot bind to PostgreSQL type `{ty}`; cast explicitly in SQL"
+    )
+    .into())
+}
+
+fn box_error<E: std::error::Error + Sync + Send + 'static>(
+    error: E,
+) -> Box<dyn std::error::Error + Sync + Send> {
+    Box::new(error)
 }
 
 pub async fn run_sql_as(

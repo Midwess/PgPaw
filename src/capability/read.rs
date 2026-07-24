@@ -110,6 +110,19 @@ impl ReadOperations {
         self.live.subscription_count()
     }
 
+    pub(crate) fn sql_operations(&self, public_role: Option<String>) -> crate::capability::sql::SqlOperations {
+        #[cfg(feature = "server")]
+        let read_only = self.replica.is_some();
+        #[cfg(not(feature = "server"))]
+        let read_only = false;
+        crate::capability::sql::SqlOperations::new(
+            self.db.clone(),
+            self.verifier.clone(),
+            public_role,
+            read_only,
+        )
+    }
+
     pub fn authenticate(&self, bearer: Option<&str>) -> Result<Option<Principal>, CacheError> {
         let Some(token) = bearer else {
             return Ok(None);

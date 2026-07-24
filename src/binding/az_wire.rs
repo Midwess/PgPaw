@@ -3,66 +3,48 @@ use futures_util::StreamExt;
 use serde_json::Value;
 
 use crate::capability::read::ReadOperations;
+use crate::capability::sql::{SqlOperations, SQL_DEADLINE_SECS};
 use crate::error::CacheError;
-use crate::protocol::payload::{
-    CursorRequest, CursorResponse, LiveEvent, LiveRequest, ReadRequest, ReadResponse,
-};
-use crate::protocol::subjects::{CURSOR_SUBJECT, LIVE_SUBJECT, READ_SUBJECT};
+use crate::protocol::payload::{LiveEvent, LiveRequest, SqlReply, SqlRequest};
+use crate::protocol::subjects::{LIVE_SUBJECT, SQL_SUBJECT};
 
 pub(crate) fn register_az_wire(builder: NodeBuilder, operations: ReadOperations) -> NodeBuilder {
     use az_wire::Handler;
 
+    let sql_operations = operations.sql_operations(None);
     builder
         .state(operations)
-        .service(read.at_subject(READ_SUBJECT))
-        .service(cursor.at_subject(CURSOR_SUBJECT))
+        .state(sql_operations)
+        .service(sql.at_subject(SQL_SUBJECT))
         .service(live.at_subject(LIVE_SUBJECT))
 }
 
 #[handler]
-async fn read(
-    operations: State<ReadOperations>,
-    request: Request<ReadRequest>,
-) -> Result<Reply<ReadResponse>, HandlerError> {
+async fn sql(
+    operations: State<SqlOperations>,
+    request: Request<SqlRequest>,
+) -> Result<Reply<SqlReply>, HandlerError> {
     let request = request.into_payload();
     let principal = operations
         .authenticate(request.bearer.as_deref())
         .map_err(handler_error)?;
-    let prepared = operations
-        .prepare(&request.sql, principal)
-        .await
-        .map_err(handler_error)?;
-    if prepared.private {
-        let rows = operations
-            .execute_private(&prepared)
-            .await
-            .and_then(parse_rows)
-            .map_err(handler_error)?;
-        let (_, version, _) = operations.materialize_version(&prepared);
-        Ok(Reply::new(ReadResponse::Private { rows, version }))
-    } else {
-        let (hash, version, _) = operations
-            .materialize(&prepared)
-            .await
-            .map_err(handler_error)?;
-        Ok(Reply::new(ReadResponse::Public { hash, version }))
-    }
-}
-
-#[handler]
-async fn cursor(
-    operations: State<ReadOperations>,
-    request: Request<CursorRequest>,
-) -> Result<Reply<CursorResponse>, HandlerError> {
-    let request = request.into_payload();
-    let result = operations
-        .cursor(&request.hash, &request.version)
-        .await
-        .ok_or_else(|| HandlerError::new(ErrorCode::InvalidInput, "unknown cursor"))?;
-    let rows = parse_rows(result.body.clone()).map_err(handler_error)?;
-    Ok(Reply::new(CursorResponse {
-        etag: result.etag.clone(),
+    let outcome = tokio::time::timeout(
+        std::time::Duration::from_secs(SQL_DEADLINE_SECS),
+        operations.execute(&request.sql, &request.params, principal),
+    )
+    .await
+    .map_err(|_| {
+        HandlerError::new(
+            ErrorCode::Busy,
+            format!("statement exceeded the {SQL_DEADLINE_SECS}s execution deadline"),
+        )
+    })?
+    .map_err(handler_error)?;
+    let rows = parse_rows(outcome.rows_json).map_err(handler_error)?;
+    Ok(Reply::new(SqlReply {
+        command: outcome.command,
         rows,
+        rows_affected: outcome.rows_affected,
     }))
 }
 

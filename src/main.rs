@@ -193,6 +193,7 @@ impl AuthOptions {
             jwt_public_key: self.jwt_public_key.clone(),
             jwt_jwks_url: self.jwt_jwks_url.clone(),
             role_claim: Some(self.jwt_role_claim.clone()),
+            sql_public_role: None,
         }
     }
 }
