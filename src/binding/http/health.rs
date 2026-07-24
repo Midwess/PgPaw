@@ -6,7 +6,10 @@ use crate::capability::read::ReadOperations;
 pub async fn healthz(operations: web::Data<ReadOperations>) -> HttpResponse {
     let health = operations.health();
     if health.halted {
-        log::warn!("event=health_check status=halted reason={:?}", health.reason);
+        log::warn!(
+            "event=health_check status=halted reason={:?}",
+            health.reason
+        );
         return HttpResponse::ServiceUnavailable().json(json!({
             "status": "halted",
             "reason": health.reason,

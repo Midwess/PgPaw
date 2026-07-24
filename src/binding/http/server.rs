@@ -2,8 +2,8 @@ use actix_cors::Cors;
 use actix_web::middleware::Logger;
 use actix_web::{dev::Server, web, App, HttpServer};
 
-use crate::error::CacheError;
 use crate::capability::read::ReadOperations;
+use crate::error::CacheError;
 
 pub(crate) fn bind_at(
     addr: std::net::SocketAddr,

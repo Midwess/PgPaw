@@ -1,4 +1,4 @@
-use pgpaw::{recover_primary, LifecycleErrorKind, PgPaw, EmbeddedPrimarySource, PgSource};
+use pgpaw::{recover_primary, EmbeddedPrimarySource, LifecycleErrorKind, PgPaw, PgSource};
 use tokio_postgres::NoTls;
 
 #[cfg(feature = "az-wire")]
@@ -111,13 +111,17 @@ async fn primary_reports_a_busy_data_directory() {
     ensure_runtime_dir();
     let dir = tempfile::tempdir().unwrap();
     let primary = PgPaw::builder()
-        .source(PgSource::primary(EmbeddedPrimarySource::embedded(dir.path())))
+        .source(PgSource::primary(EmbeddedPrimarySource::embedded(
+            dir.path(),
+        )))
         .open()
         .await
         .unwrap();
 
     let error = match PgPaw::builder()
-        .source(PgSource::primary(EmbeddedPrimarySource::embedded(dir.path())))
+        .source(PgSource::primary(EmbeddedPrimarySource::embedded(
+            dir.path(),
+        )))
         .open()
         .await
     {
@@ -293,7 +297,10 @@ async fn embedded_child_reads_configured_database_and_observes_external_commits(
     let external_dsn = format!("postgres://postgres@127.0.0.1:{port}/configured");
 
     let bootstrap = PgPaw::builder()
-        .source(PgSource::primary(configured_primary(primary_dir.clone(), port)))
+        .source(PgSource::primary(configured_primary(
+            primary_dir.clone(),
+            port,
+        )))
         .open()
         .await
         .unwrap();

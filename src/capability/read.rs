@@ -9,10 +9,10 @@ use pglite::Replica;
 use crate::capability::auth::{Principal, Verifier};
 use crate::capability::cache::{CachedResult, QueryCache};
 use crate::capability::classify::{CacheableQuery, ReadClassifier};
-use crate::error::CacheError;
 use crate::capability::live::{LiveHub, LiveSubscription};
 use crate::capability::rows;
 use crate::capability::version::VersionIndex;
+use crate::error::CacheError;
 
 type SecurityCache = Arc<Mutex<(u64, HashMap<String, bool>)>>;
 

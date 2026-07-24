@@ -14,24 +14,24 @@ mod source;
 mod tests;
 
 #[cfg(feature = "read")]
-pub use capability::auth::AuthConfig;
-#[cfg(feature = "read")]
 pub use api::builder::PgPawBuilder;
 #[cfg(feature = "az-wire")]
 pub use api::config::AzWireConfig;
+#[cfg(feature = "read")]
+pub use api::config::{CacheConfig, EmbeddedPrimarySource, PgSource};
 #[cfg(feature = "server")]
 pub use api::config::{HttpConfig, ReplicaSource, UpstreamConfig};
 #[cfg(feature = "read")]
-pub use api::config::{CacheConfig, EmbeddedPrimarySource, PgSource};
-#[cfg(feature = "read")]
 pub use api::runtime::PgPaw;
-pub use error::{CacheError, LifecycleErrorKind};
+#[cfg(feature = "read")]
+pub use capability::auth::AuthConfig;
 #[cfg(feature = "server")]
 pub use capability::read::HealthStatus;
 #[cfg(feature = "read")]
 pub use capability::read::{PreparedRead, ReadOperations};
 pub use db::primary::recover_primary;
 pub use db::shadow::{open_shadow, ShadowHandle};
+pub use error::{CacheError, LifecycleErrorKind};
 
 #[cfg(feature = "server")]
 pub async fn init(upstream: UpstreamConfig, publication: &str) -> Result<(), CacheError> {

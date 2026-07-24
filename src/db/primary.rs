@@ -97,9 +97,9 @@ pub(crate) async fn open_primary_db(
         .map_err(|error| primary_start_error(error, &source.data_dir))?
     };
     let prepared = async {
-        let base = db.connection_uri().ok_or_else(|| {
-            CacheError::Config("primary engine exposes no connection_uri".into())
-        })?;
+        let base = db
+            .connection_uri()
+            .ok_or_else(|| CacheError::Config("primary engine exposes no connection_uri".into()))?;
         let (address, query) = base
             .split_once('?')
             .map(|(address, query)| (address, Some(query)))

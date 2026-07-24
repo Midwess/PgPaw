@@ -5,8 +5,8 @@ use tokio_stream::StreamExt;
 
 use crate::capability::auth::{AuthOutcome, Principal};
 use crate::capability::classify::CacheableQuery;
-use crate::error::CacheError;
 use crate::capability::read::ReadOperations;
+use crate::error::CacheError;
 
 #[derive(Deserialize)]
 pub struct QueryParams {
@@ -197,8 +197,8 @@ fn tables_csv(tables: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::error_status;
-    use crate::error::CacheError;
     use crate::capability::read::map_db_denial;
+    use crate::error::CacheError;
     use actix_web::http::StatusCode;
 
     fn db_error(sqlstate: &str) -> CacheError {

@@ -101,12 +101,7 @@ pub(crate) async fn build_replica_core(
     }
     .await;
     match assembled {
-        Ok((read, cdc)) => Ok((
-            read,
-            db,
-            None,
-            SourceShutdown::Replica { replica, cdc },
-        )),
+        Ok((read, cdc)) => Ok((read, db, None, SourceShutdown::Replica { replica, cdc })),
         Err(error) => {
             replica.stop();
             let _ = db.shutdown().await;

@@ -71,10 +71,7 @@ impl PgPawBuilder {
             .ok_or_else(|| CacheError::Config("PgPaw requires a source".into()))?;
         let (read, db, dsn, shutdown_state) =
             crate::source::build_read_core(source, self.cache, self.auth).await?;
-        #[cfg_attr(
-            not(any(feature = "server", feature = "az-wire")),
-            allow(unused_mut)
-        )]
+        #[cfg_attr(not(any(feature = "server", feature = "az-wire")), allow(unused_mut))]
         let mut pgpaw = PgPaw {
             read,
             db,
@@ -100,16 +97,17 @@ impl PgPawBuilder {
         }
         #[cfg(feature = "az-wire")]
         for config in self.az_wire {
-            let node = match crate::binding::az_wire::register_az_wire(config.node, pgpaw.read.clone())
-                .build()
-            {
-                Ok(node) => node,
-                Err(error) => {
-                    return Err(pgpaw
-                        .abort_open(CacheError::lifecycle(LifecycleErrorKind::Topology, error))
-                        .await)
-                }
-            };
+            let node =
+                match crate::binding::az_wire::register_az_wire(config.node, pgpaw.read.clone())
+                    .build()
+                {
+                    Ok(node) => node,
+                    Err(error) => {
+                        return Err(pgpaw
+                            .abort_open(CacheError::lifecycle(LifecycleErrorKind::Topology, error))
+                            .await)
+                    }
+                };
             match node.start_topology(config.topology).await {
                 Ok(topology) => pgpaw.az_wire.push(topology),
                 Err(error) => {

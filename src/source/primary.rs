@@ -42,12 +42,7 @@ pub(crate) async fn build_primary_core(
     }
     .await;
     match assembled {
-        Ok((read, observer)) => Ok((
-            read,
-            db,
-            Some(dsn),
-            SourceShutdown::Primary { observer },
-        )),
+        Ok((read, observer)) => Ok((read, db, Some(dsn), SourceShutdown::Primary { observer })),
         Err(error) => {
             let _ = db.close().await;
             Err(error)

@@ -10,8 +10,13 @@ use crate::error::{CacheError, LifecycleErrorKind};
 
 pub(crate) enum SourceShutdown {
     #[cfg(feature = "server")]
-    Replica { replica: Replica, cdc: CdcBridge },
-    Primary { observer: PrimaryObserver },
+    Replica {
+        replica: Replica,
+        cdc: CdcBridge,
+    },
+    Primary {
+        observer: PrimaryObserver,
+    },
 }
 
 pub struct PgPaw {
@@ -94,18 +99,16 @@ impl PgPaw {
                 .iter_mut()
                 .find(|topology| topology.is_finished())
             {
-                return topology.wait().await.map_err(|error| {
-                    CacheError::lifecycle(LifecycleErrorKind::Topology, error)
-                });
+                return topology
+                    .wait()
+                    .await
+                    .map_err(|error| CacheError::lifecycle(LifecycleErrorKind::Topology, error));
             }
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
     }
 
-    #[cfg_attr(
-        not(any(feature = "server", feature = "az-wire")),
-        allow(unused_mut)
-    )]
+    #[cfg_attr(not(any(feature = "server", feature = "az-wire")), allow(unused_mut))]
     pub async fn shutdown(mut self) -> Result<(), CacheError> {
         let mut result = Ok(());
         #[cfg(feature = "server")]
@@ -150,8 +153,7 @@ impl PgPaw {
                 }
                 if let Err(error) = self.db.close().await {
                     if result.is_ok() {
-                        result =
-                            Err(CacheError::lifecycle(LifecycleErrorKind::Shutdown, error));
+                        result = Err(CacheError::lifecycle(LifecycleErrorKind::Shutdown, error));
                     }
                 }
             }
@@ -162,10 +164,7 @@ impl PgPaw {
     #[cfg(any(feature = "server", feature = "az-wire"))]
     pub(crate) async fn abort_open(self, error: CacheError) -> CacheError {
         if let Err(cleanup) = self.shutdown().await {
-            log::warn!(
-                "event=open_rollback_failed error={:?}",
-                cleanup.to_string()
-            );
+            log::warn!("event=open_rollback_failed error={:?}", cleanup.to_string());
         }
         error
     }

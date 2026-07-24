@@ -172,7 +172,8 @@ fn authenticate(req: &HttpRequest) -> Result<Option<Principal>, CacheError> {
             log::warn!("event=auth_failed reason=malformed_authorization_header");
             CacheError::Unauthorized("malformed Authorization header".to_string())
         })?;
-    let Some(operations) = req.app_data::<actix_web::web::Data<crate::capability::read::ReadOperations>>()
+    let Some(operations) =
+        req.app_data::<actix_web::web::Data<crate::capability::read::ReadOperations>>()
     else {
         log::warn!("event=auth_failed reason=read_operations_state_missing");
         return Err(CacheError::Config(

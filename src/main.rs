@@ -8,8 +8,8 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 use pgpaw::{
-    init, AuthConfig, CacheConfig, CacheError, HttpConfig, PgPaw, PgPawBuilder, EmbeddedPrimarySource,
-    ReplicaSource, PgSource, UpstreamConfig,
+    init, AuthConfig, CacheConfig, CacheError, EmbeddedPrimarySource, HttpConfig, PgPaw,
+    PgPawBuilder, PgSource, ReplicaSource, UpstreamConfig,
 };
 
 #[derive(Parser)]
@@ -495,7 +495,10 @@ mod tests {
         .unwrap()
         .serve;
         assert_eq!(options.addr().unwrap().to_string(), "127.0.0.2:8081");
-        assert_eq!(options.az_wire_addr().unwrap().to_string(), "127.0.0.3:9000");
+        assert_eq!(
+            options.az_wire_addr().unwrap().to_string(),
+            "127.0.0.3:9000"
+        );
     }
 
     #[cfg(feature = "az-wire")]
