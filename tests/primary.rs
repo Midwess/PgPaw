@@ -695,6 +695,35 @@ async fn embedded_child_reads_configured_database_and_observes_external_commits(
         .unwrap();
     drop(joined);
 
+    let mut fragile = parent
+        .subscribe(
+            LIVE_SUBJECT,
+            json!({"sql": "SELECT id, name FROM items ORDER BY id", "bearer": null}),
+        )
+        .await
+        .unwrap();
+    let fragile_snapshot: LiveEvent =
+        serde_json::from_slice(&fragile.next().await.unwrap().unwrap()).unwrap();
+    assert!(matches!(fragile_snapshot, LiveEvent::Snapshot { .. }));
+    client
+        .batch_execute(
+            "ALTER TABLE items RENAME COLUMN name TO label; \
+             INSERT INTO items (id, label) VALUES (9, 'broken')",
+        )
+        .await
+        .unwrap();
+    let failed = tokio::time::timeout(std::time::Duration::from_secs(5), fragile.next())
+        .await
+        .expect("a failed delta re-query answers, not silence")
+        .unwrap()
+        .unwrap();
+    let failed: LiveEvent = serde_json::from_slice(&failed).unwrap();
+    assert!(
+        matches!(failed, LiveEvent::Reset),
+        "a failed re-query resets the subscription instead of emitting a phantom delete: {failed:?}"
+    );
+    drop(fragile);
+
     drop(live);
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
         while pgpaw.live_subscription_count() != 0 {

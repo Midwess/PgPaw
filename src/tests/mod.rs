@@ -56,7 +56,9 @@ fn select_for_update_is_rejected() {
 
 #[test]
 fn volatile_function_is_rejected() {
-    assert!(classifier().classify("select now() from users", &[]).is_err());
+    assert!(classifier()
+        .classify("select now() from users", &[])
+        .is_err());
 }
 
 #[test]
@@ -90,6 +92,18 @@ fn placeholder_filter_anchors_with_its_bound_param() {
     assert!(text
         .eq_filters
         .contains(&("name".to_string(), "ada".to_string())));
+}
+
+#[test]
+fn non_text_stable_placeholder_does_not_anchor() {
+    let flag = classifier()
+        .classify("select * from users where active = $1", &[json!(true)])
+        .unwrap();
+    assert!(flag.eq_filters.is_empty());
+    let float = classifier()
+        .classify("select * from users where score = $1", &[json!(1.5)])
+        .unwrap();
+    assert!(float.eq_filters.is_empty());
 }
 
 #[test]

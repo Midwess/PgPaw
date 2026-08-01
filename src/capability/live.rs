@@ -207,7 +207,7 @@ impl LiveHub {
             params,
         } in jobs
         {
-            let fresh = rows::query_json_scoped(
+            let fresh = match rows::query_json_scoped(
                 &self.db,
                 principal.as_ref(),
                 headers.as_deref(),
@@ -215,7 +215,19 @@ impl LiveHub {
                 &params,
             )
             .await
-            .unwrap_or_else(|_| "[]".to_string());
+            {
+                Ok(fresh) => fresh,
+                Err(error) => {
+                    log::warn!(
+                        "event=live_requery_failed subscription_id={id} txid={txid} error={error}"
+                    );
+                    let mut subs = self.subs.lock().unwrap();
+                    if let Some(sub) = subs.remove(&id) {
+                        let _ = sub.sender.send(reset());
+                    }
+                    continue;
+                }
+            };
             let next = keyed_map(&fresh, pk.as_deref());
             let deltas = diff(&last, &next);
             log::info!(

@@ -33,7 +33,11 @@ pub(crate) async fn build_primary_core(
              ALTER DEFAULT PRIVILEGES IN SCHEMA public \
                GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO pgpaw_public; \
              ALTER DEFAULT PRIVILEGES IN SCHEMA public \
-               GRANT USAGE, SELECT ON SEQUENCES TO pgpaw_public",
+               GRANT USAGE, SELECT ON SEQUENCES TO pgpaw_public; \
+             DO $$ BEGIN \
+               EXECUTE format('ALTER DATABASE %I SET request.headers = %L', \
+                              current_database(), '{}'); \
+             END $$",
         )
         .await?;
         let (tables, pk, full) = crate::capability::schema::scan_schema(&db).await?;

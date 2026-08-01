@@ -160,6 +160,13 @@ impl ReadOperations {
             }
         }
         let query = self.classifier.classify(sql, params)?;
+        let private = self.is_private(&query.tables).await?;
+        if private && principal.is_none() && headers.is_none() {
+            return Err(CacheError::Unauthorized(
+                "this query is access-controlled; a bearer token or request identity is required"
+                    .to_string(),
+            ));
+        }
         if query.tables.len() > 1 {
             rows::ensure_unique_columns(
                 &self.db,
@@ -169,13 +176,6 @@ impl ReadOperations {
                 &query.params,
             )
             .await?;
-        }
-        let private = self.is_private(&query.tables).await?;
-        if private && principal.is_none() && headers.is_none() {
-            return Err(CacheError::Unauthorized(
-                "this query is access-controlled; a bearer token or request identity is required"
-                    .to_string(),
-            ));
         }
         Ok(PreparedRead {
             query,

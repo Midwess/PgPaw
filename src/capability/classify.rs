@@ -208,9 +208,10 @@ fn placeholder_value(expr: &Expr, params: &[serde_json::Value]) -> Option<String
     };
     let index: usize = text.strip_prefix('$')?.parse().ok()?;
     match params.get(index.checked_sub(1)?)? {
-        serde_json::Value::Number(number) => Some(number.to_string()),
+        serde_json::Value::Number(number) if number.is_i64() || number.is_u64() => {
+            Some(number.to_string())
+        }
         serde_json::Value::String(text) => Some(text.clone()),
-        serde_json::Value::Bool(flag) => Some(flag.to_string()),
         _ => None,
     }
 }

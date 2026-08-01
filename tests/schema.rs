@@ -195,7 +195,10 @@ async fn primary_open_bootstraps_ledgers_without_a_caller() {
         .await
         .unwrap()
         .get(0);
-    assert_eq!(present, 1, "ledgers exist after open with no caller involvement");
+    assert_eq!(
+        present, 1,
+        "ledgers exist after open with no caller involvement"
+    );
     drop(client);
     connection.abort();
     pgpaw.shutdown().await.unwrap();
