@@ -312,6 +312,7 @@ async fn embedded_child_reads_configured_database_and_observes_external_commits(
         client.batch_execute("CREATE TABLE items (id int primary key, name text); GRANT SELECT ON items TO PUBLIC; INSERT INTO items VALUES (1, 'first')").await.unwrap();
         client.batch_execute("GRANT SELECT ON items TO pgpaw_public; CREATE TABLE notes (id int primary key, body text); GRANT SELECT, INSERT, UPDATE, DELETE ON notes TO pgpaw_public").await.unwrap();
         client.batch_execute("CREATE ROLE authenticated; CREATE TABLE private_items (id int primary key, owner int, name text); ALTER TABLE private_items ENABLE ROW LEVEL SECURITY; GRANT SELECT ON private_items TO authenticated; CREATE POLICY private_owner ON private_items FOR SELECT TO authenticated USING (owner = ((current_setting('request.jwt.claims', true))::jsonb ->> 'owner')::int); INSERT INTO private_items VALUES (1, 7, 'allowed'), (2, 8, 'denied')").await.unwrap();
+        client.batch_execute("CREATE TABLE header_items (id int primary key, owner text not null, name text); ALTER TABLE header_items ENABLE ROW LEVEL SECURITY; GRANT SELECT ON header_items TO pgpaw_public; CREATE POLICY header_owner ON header_items FOR SELECT TO pgpaw_public USING (owner = current_setting('request.headers', true)::jsonb ->> 'authorization'); INSERT INTO header_items VALUES (1, 'u1', 'mine'), (2, 'u2', 'theirs')").await.unwrap();
         drop(client);
         connection.abort();
     }
@@ -448,6 +449,48 @@ async fn embedded_child_reads_configured_database_and_observes_external_commits(
         anon_private["rows"],
         json!([]),
         "row security hides every private row from the neutral public role"
+    );
+
+    let headered = http::Request::post(format!("/{SQL_SUBJECT}"))
+        .header("Authorization", "u1")
+        .body(json!({"sql": "SELECT id, name FROM header_items ORDER BY id", "bearer": null}))
+        .send(&parent)
+        .await
+        .unwrap();
+    let headered: serde_json::Value = serde_json::from_slice(headered.body()).unwrap();
+    assert_eq!(
+        headered["rows"],
+        json!([{"id": 1, "name": "mine"}]),
+        "an RLS policy keyed on request.headers selects only the header owner's rows"
+    );
+    let unheadered = http::Request::post(format!("/{SQL_SUBJECT}"))
+        .body(json!({"sql": "SELECT id, name FROM header_items ORDER BY id", "bearer": null}))
+        .send(&parent)
+        .await
+        .unwrap();
+    let unheadered: serde_json::Value = serde_json::from_slice(unheadered.body()).unwrap();
+    assert_eq!(
+        unheadered["rows"],
+        json!([]),
+        "a request without headers satisfies no header-derived policy"
+    );
+    let projected = http::Request::post(format!("/{SQL_SUBJECT}"))
+        .header("Authorization", "u1")
+        .body(json!({"sql": "SELECT current_setting('request.headers', true) AS headers", "bearer": null}))
+        .send(&parent)
+        .await
+        .unwrap();
+    let projected: serde_json::Value = serde_json::from_slice(projected.body()).unwrap();
+    let projected: serde_json::Value =
+        serde_json::from_str(projected["rows"][0]["headers"].as_str().unwrap()).unwrap();
+    assert_eq!(projected["authorization"], "u1");
+    assert!(
+        projected
+            .as_object()
+            .unwrap()
+            .keys()
+            .all(|name| !name.starts_with("az-")),
+        "reserved transport headers never reach request.headers: {projected}"
     );
 
     client

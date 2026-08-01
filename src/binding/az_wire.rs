@@ -24,13 +24,14 @@ async fn sql(
     operations: State<SqlOperations>,
     request: Request<SqlRequest>,
 ) -> Result<Reply<SqlReply>, HandlerError> {
+    let headers = wire_headers(request.headers());
     let request = request.into_payload();
     let principal = operations
         .authenticate(request.bearer.as_deref())
         .map_err(handler_error)?;
     let outcome = tokio::time::timeout(
         std::time::Duration::from_secs(SQL_DEADLINE_SECS),
-        operations.execute(&request.sql, &request.params, principal, None),
+        operations.execute(&request.sql, &request.params, principal, headers.as_deref()),
     )
     .await
     .map_err(|_| {
@@ -72,6 +73,24 @@ async fn live(
 
 fn parse_rows(body: String) -> Result<Value, CacheError> {
     serde_json::from_str(&body).map_err(|error| CacheError::Cache(error.to_string()))
+}
+
+fn wire_headers(headers: &az_wire::http::HeaderMap) -> Option<String> {
+    let headers = headers
+        .iter()
+        .filter(|(name, _)| !name.as_str().starts_with("az-"))
+        .filter_map(|(name, value)| {
+            value
+                .to_str()
+                .ok()
+                .map(|value| (name.as_str().to_string(), Value::String(value.to_string())))
+        })
+        .collect::<serde_json::Map<_, _>>();
+    if headers.is_empty() {
+        None
+    } else {
+        Some(Value::Object(headers).to_string())
+    }
 }
 
 fn decode_event(event: &str) -> Result<LiveEvent, HandlerError> {
@@ -154,6 +173,17 @@ mod tests {
     use crate::protocol::payload::LiveEvent;
     use az_wire::{ErrorCode, HostConfig, NodeBuilder, TopologyConfig};
     use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
+
+    #[test]
+    fn wire_headers_project_lowercase_and_strip_reserved_names() {
+        let mut headers = az_wire::http::HeaderMap::new();
+        headers.insert("Authorization", "u1".parse().unwrap());
+        headers.insert("az-peer", "transport".parse().unwrap());
+        let projected = super::wire_headers(&headers).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&projected).unwrap();
+        assert_eq!(value, serde_json::json!({"authorization": "u1"}));
+        assert!(super::wire_headers(&az_wire::http::HeaderMap::new()).is_none());
+    }
 
     #[test]
     fn decodes_sse_delta_as_typed_event() {

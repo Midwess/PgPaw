@@ -194,13 +194,14 @@ pub async fn run_sql_as(
         )
         .await?;
     }
-    if let Some(headers) = headers {
-        tx.query(
-            &format!("SET LOCAL request.headers = {}", sql_literal(headers)),
-            &[],
-        )
-        .await?;
-    }
+    tx.query(
+        &format!(
+            "SET LOCAL request.headers = {}",
+            sql_literal(headers.unwrap_or("{}"))
+        ),
+        &[],
+    )
+    .await?;
     tx.query(&format!("SET LOCAL ROLE {}", sql_ident(role)), &[])
         .await?;
     let outcome = async {
