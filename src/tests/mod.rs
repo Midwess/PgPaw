@@ -19,14 +19,14 @@ fn classifier() -> ReadClassifier {
 #[test]
 fn pure_select_over_replicated_table_is_cacheable() {
     let query = classifier()
-        .classify("select * from users where id = 1")
+        .classify("select * from users where id = 1", &[])
         .unwrap();
     assert!(query.tables.contains(&"users".to_string()));
 }
 
 #[test]
 fn select_over_non_replicated_table_is_rejected() {
-    assert!(classifier().classify("select * from secrets").is_err());
+    assert!(classifier().classify("select * from secrets", &[]).is_err());
 }
 
 #[test]
@@ -35,7 +35,7 @@ fn quoted_identifier_matches_replicated_table() {
     replicated.insert("Sandbox".to_string());
     let classifier = ReadClassifier::new(replicated);
     let query = classifier
-        .classify("select * from \"Sandbox\" where id = 1")
+        .classify("select * from \"Sandbox\" where id = 1", &[])
         .unwrap();
     assert!(query.tables.contains(&"sandbox".to_string()));
 }
@@ -43,37 +43,76 @@ fn quoted_identifier_matches_replicated_table() {
 #[test]
 fn insert_is_rejected() {
     assert!(classifier()
-        .classify("insert into users (id) values (1)")
+        .classify("insert into users (id) values (1)", &[])
         .is_err());
 }
 
 #[test]
 fn select_for_update_is_rejected() {
     assert!(classifier()
-        .classify("select * from users where id = 1 for update")
+        .classify("select * from users where id = 1 for update", &[])
         .is_err());
 }
 
 #[test]
 fn volatile_function_is_rejected() {
-    assert!(classifier().classify("select now() from users").is_err());
+    assert!(classifier().classify("select now() from users", &[]).is_err());
 }
 
 #[test]
 fn multi_statement_is_rejected() {
     assert!(classifier()
-        .classify("select 1 from users; select 2 from orders")
+        .classify("select 1 from users; select 2 from orders", &[])
         .is_err());
 }
 
 #[test]
 fn equality_filter_is_extracted_for_cacheable() {
     let query = classifier()
-        .classify("select * from users where id = 7")
+        .classify("select * from users where id = 7", &[])
         .unwrap();
     assert!(query
         .eq_filters
         .contains(&("id".to_string(), "7".to_string())));
+}
+
+#[test]
+fn placeholder_filter_anchors_with_its_bound_param() {
+    let query = classifier()
+        .classify("select * from users where id = $1", &[json!(7)])
+        .unwrap();
+    assert!(query
+        .eq_filters
+        .contains(&("id".to_string(), "7".to_string())));
+    let text = classifier()
+        .classify("select * from users where name = $1", &[json!("ada")])
+        .unwrap();
+    assert!(text
+        .eq_filters
+        .contains(&("name".to_string(), "ada".to_string())));
+}
+
+#[test]
+fn unbound_placeholder_does_not_anchor() {
+    let query = classifier()
+        .classify("select * from users where id = $1", &[])
+        .unwrap();
+    assert!(query.eq_filters.is_empty());
+}
+
+#[test]
+fn params_enter_the_fingerprint() {
+    let one = classifier()
+        .classify("select * from users where id = $1", &[json!(1)])
+        .unwrap();
+    let two = classifier()
+        .classify("select * from users where id = $1", &[json!(2)])
+        .unwrap();
+    let one_again = classifier()
+        .classify("select * from users where id = $1", &[json!(1)])
+        .unwrap();
+    assert_ne!(one.fingerprint, two.fingerprint);
+    assert_eq!(one.fingerprint, one_again.fingerprint);
 }
 
 fn users_versions() -> VersionIndex {

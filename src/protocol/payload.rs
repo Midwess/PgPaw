@@ -21,6 +21,8 @@ pub struct SqlReply {
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct LiveRequest {
     pub sql: String,
+    #[serde(default)]
+    pub params: Vec<Value>,
     pub bearer: Option<String>,
 }
 

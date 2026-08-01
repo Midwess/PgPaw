@@ -60,7 +60,7 @@ async fn live(
         .authenticate(request.bearer.as_deref())
         .map_err(handler_error)?;
     let prepared = operations
-        .prepare(&request.sql, principal, headers.as_deref())
+        .prepare(&request.sql, principal, headers.as_deref(), &request.params)
         .await
         .map_err(handler_error)?;
     let subscription = operations

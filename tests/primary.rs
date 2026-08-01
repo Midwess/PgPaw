@@ -638,6 +638,63 @@ async fn embedded_child_reads_configured_database_and_observes_external_commits(
     );
     drop(headered_live);
 
+    let mut live_one = parent
+        .subscribe(
+            LIVE_SUBJECT,
+            json!({"sql": "SELECT id, name FROM items WHERE id = $1", "params": [1], "bearer": null}),
+        )
+        .await
+        .unwrap();
+    let one: LiveEvent = serde_json::from_slice(&live_one.next().await.unwrap().unwrap()).unwrap();
+    let mut live_two = parent
+        .subscribe(
+            LIVE_SUBJECT,
+            json!({"sql": "SELECT id, name FROM items WHERE id = $1", "params": [2], "bearer": null}),
+        )
+        .await
+        .unwrap();
+    let two: LiveEvent = serde_json::from_slice(&live_two.next().await.unwrap().unwrap()).unwrap();
+    let (LiveEvent::Snapshot { hash: hash_one, .. }, LiveEvent::Snapshot { hash: hash_two, .. }) =
+        (one, two)
+    else {
+        panic!("expected two snapshots");
+    };
+    assert_ne!(
+        hash_one, hash_two,
+        "identical SQL with different params occupies distinct cache keys"
+    );
+    drop(live_one);
+    drop(live_two);
+
+    let mut filtered = parent
+        .subscribe_with(
+            LIVE_SUBJECT,
+            json!({"sql": "SELECT id, name FROM header_items WHERE id = $1", "params": [3], "bearer": null}),
+            serde_json::Map::from_iter([("authorization".to_string(), json!("u1"))]),
+        )
+        .await
+        .unwrap();
+    let filtered_snapshot: LiveEvent =
+        serde_json::from_slice(&filtered.next().await.unwrap().unwrap()).unwrap();
+    let LiveEvent::Snapshot { rows, .. } = filtered_snapshot else {
+        panic!("expected a snapshot: {filtered_snapshot:?}");
+    };
+    assert_eq!(
+        rows.unwrap(),
+        json!([{"id": 3, "name": "mine too"}]),
+        "the live snapshot binds $1 under the subscribe-time headers"
+    );
+    drop(filtered);
+
+    let joined = parent
+        .subscribe(
+            LIVE_SUBJECT,
+            json!({"sql": "SELECT i.id AS item_id, n.id AS note_id FROM items i JOIN notes n ON n.id = i.id WHERE i.id = $1", "params": [1], "bearer": null}),
+        )
+        .await
+        .unwrap();
+    drop(joined);
+
     drop(live);
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
         while pgpaw.live_subscription_count() != 0 {

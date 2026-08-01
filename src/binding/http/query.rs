@@ -30,7 +30,7 @@ pub async fn query(
     };
 
     let read = match operations
-        .prepare(body.sql.as_str(), principal.clone(), None)
+        .prepare(body.sql.as_str(), principal.clone(), None, &[])
         .await
     {
         Ok(read) => read,

@@ -15,6 +15,7 @@ pub struct CacheableQuery {
     pub tables: Vec<String>,
     pub eq_filters: Vec<(String, String)>,
     pub sql: String,
+    pub params: Vec<serde_json::Value>,
 }
 
 const SIDE_EFFECTING: &[&str] = &[
@@ -49,7 +50,11 @@ impl ReadClassifier {
         }
     }
 
-    pub fn classify(&self, sql: &str) -> Result<CacheableQuery, CacheError> {
+    pub fn classify(
+        &self,
+        sql: &str,
+        params: &[serde_json::Value],
+    ) -> Result<CacheableQuery, CacheError> {
         let statements = Parser::parse_sql(&PostgreSqlDialect {}, sql).map_err(|_| {
             CacheError::Rejected(
                 "could not parse as a read-only SELECT; this server caches read queries only"
@@ -141,23 +146,27 @@ impl ReadClassifier {
         let mut eq_filters = Vec::new();
         if let SetExpr::Select(select) = query.body.as_ref() {
             if let Some(selection) = &select.selection {
-                collect_eq_filters(selection, &mut eq_filters);
+                collect_eq_filters(selection, params, &mut eq_filters);
             }
         }
 
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         statement.to_string().hash(&mut hasher);
+        for param in params {
+            param.to_string().hash(&mut hasher);
+        }
 
         Ok(CacheableQuery {
             fingerprint: hasher.finish(),
             tables,
             eq_filters,
             sql: sql.to_string(),
+            params: params.to_vec(),
         })
     }
 }
 
-fn collect_eq_filters(root: &Expr, out: &mut Vec<(String, String)>) {
+fn collect_eq_filters(root: &Expr, params: &[serde_json::Value], out: &mut Vec<(String, String)>) {
     let mut stack = vec![root];
     while let Some(expr) = stack.pop() {
         match expr {
@@ -174,9 +183,11 @@ fn collect_eq_filters(root: &Expr, out: &mut Vec<(String, String)>) {
                 op: BinaryOperator::Eq,
                 right,
             } => {
-                if let (Some(column), Some(value)) = (ident_name(left), literal_value(right)) {
+                if let (Some(column), Some(value)) = (ident_name(left), filter_value(right, params))
+                {
                     out.push((column, value));
-                } else if let (Some(column), Some(value)) = (ident_name(right), literal_value(left))
+                } else if let (Some(column), Some(value)) =
+                    (ident_name(right), filter_value(left, params))
                 {
                     out.push((column, value));
                 }
@@ -184,6 +195,23 @@ fn collect_eq_filters(root: &Expr, out: &mut Vec<(String, String)>) {
             Expr::Nested(inner) => stack.push(inner.as_ref()),
             _ => {}
         }
+    }
+}
+
+fn filter_value(expr: &Expr, params: &[serde_json::Value]) -> Option<String> {
+    literal_value(expr).or_else(|| placeholder_value(expr, params))
+}
+
+fn placeholder_value(expr: &Expr, params: &[serde_json::Value]) -> Option<String> {
+    let Expr::Value(Value::Placeholder(text)) = expr else {
+        return None;
+    };
+    let index: usize = text.strip_prefix('$')?.parse().ok()?;
+    match params.get(index.checked_sub(1)?)? {
+        serde_json::Value::Number(number) => Some(number.to_string()),
+        serde_json::Value::String(text) => Some(text.clone()),
+        serde_json::Value::Bool(flag) => Some(flag.to_string()),
+        _ => None,
     }
 }
 

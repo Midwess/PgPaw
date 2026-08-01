@@ -21,6 +21,7 @@ struct Subscription {
     last: HashMap<String, Value>,
     principal: Option<Principal>,
     headers: Option<String>,
+    params: Vec<Value>,
 }
 
 struct LiveJob {
@@ -30,6 +31,7 @@ struct LiveJob {
     last: HashMap<String, Value>,
     principal: Option<Principal>,
     headers: Option<String>,
+    params: Vec<Value>,
 }
 
 #[derive(Clone)]
@@ -98,6 +100,7 @@ impl LiveHub {
         snapshot_body: &str,
         principal: Option<Principal>,
         headers: Option<String>,
+        params: Vec<Value>,
     ) -> LiveSubscription {
         let (sender, receiver) = mpsc::unbounded_channel();
         let pk = if tables.len() == 1 {
@@ -136,6 +139,7 @@ impl LiveHub {
                 last,
                 principal,
                 headers,
+                params,
             },
         );
         LiveSubscription {
@@ -181,6 +185,7 @@ impl LiveHub {
                     last: sub.last.clone(),
                     principal: sub.principal.clone(),
                     headers: sub.headers.clone(),
+                    params: sub.params.clone(),
                 })
                 .collect()
         };
@@ -199,6 +204,7 @@ impl LiveHub {
             last,
             principal,
             headers,
+            params,
         } in jobs
         {
             let fresh = rows::query_json_scoped(
@@ -206,7 +212,7 @@ impl LiveHub {
                 principal.as_ref(),
                 headers.as_deref(),
                 &sql,
-                &[],
+                &params,
             )
             .await
             .unwrap_or_else(|_| "[]".to_string());
@@ -303,6 +309,7 @@ mod tests {
                 last: HashMap::new(),
                 principal: None,
                 headers: None,
+                params: Vec::new(),
             },
         );
         let subscription = LiveSubscription {

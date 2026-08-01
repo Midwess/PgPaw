@@ -147,6 +147,7 @@ impl ReadOperations {
         sql: &str,
         principal: Option<Principal>,
         headers: Option<&str>,
+        params: &[serde_json::Value],
     ) -> Result<PreparedRead, CacheError> {
         #[cfg(feature = "server")]
         if let Some(replica) = &self.replica {
@@ -158,10 +159,16 @@ impl ReadOperations {
                 ));
             }
         }
-        let query = self.classifier.classify(sql)?;
+        let query = self.classifier.classify(sql, params)?;
         if query.tables.len() > 1 {
-            rows::ensure_unique_columns(&self.db, principal.as_ref(), headers, &query.sql, &[])
-                .await?;
+            rows::ensure_unique_columns(
+                &self.db,
+                principal.as_ref(),
+                headers,
+                &query.sql,
+                &query.params,
+            )
+            .await?;
         }
         let private = self.is_private(&query.tables).await?;
         if private && principal.is_none() && headers.is_none() {
@@ -190,14 +197,14 @@ impl ReadOperations {
             read.principal.as_ref(),
             read.headers.as_deref(),
             &read.query.sql,
-            &[],
+            &read.query.params,
         )
         .await
         .map_err(map_db_denial)
     }
 
     pub async fn execute_public(&self, read: &PreparedRead) -> Result<String, CacheError> {
-        rows::query_json_scoped(&self.db, None, None, &read.query.sql, &[]).await
+        rows::query_json_scoped(&self.db, None, None, &read.query.sql, &read.query.params).await
     }
 
     pub async fn materialize(
@@ -211,11 +218,12 @@ impl ReadOperations {
             .0;
         let key = format!("{hash}:{version}");
         let sql = read.query.sql.clone();
+        let params = read.query.params.clone();
         let db = self.db.clone();
         let snapshot = self
             .cache
             .get_or_compute(key, async move {
-                rows::query_json_scoped(&db, None, None, &sql, &[]).await
+                rows::query_json_scoped(&db, None, None, &sql, &params).await
             })
             .await?;
         Ok((hash, version, snapshot))
@@ -246,7 +254,7 @@ impl ReadOperations {
                 read.principal.as_ref(),
                 read.headers.as_deref(),
                 &read.query.sql,
-                &[],
+                &read.query.params,
             )
             .await
             .map_err(map_db_denial)?;
@@ -258,6 +266,7 @@ impl ReadOperations {
                 &body,
                 read.principal,
                 read.headers,
+                read.query.params,
             ))
         } else {
             let (hash, version, snapshot) = self.materialize(&read).await?;
@@ -269,6 +278,7 @@ impl ReadOperations {
                 &snapshot.body,
                 None,
                 None,
+                read.query.params,
             ))
         }
     }
