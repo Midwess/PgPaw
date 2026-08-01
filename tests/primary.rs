@@ -451,6 +451,16 @@ async fn embedded_child_reads_configured_database_and_observes_external_commits(
         "row security hides every private row from the neutral public role"
     );
 
+    let default_headers: String = client
+        .query_one("select current_setting('request.headers', true)", &[])
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(
+        default_headers, "{}",
+        "the database default keeps request.headers parse-safe on every connection"
+    );
+
     let headered = http::Request::post(format!("/{SQL_SUBJECT}"))
         .header("Authorization", "u1")
         .body(json!({"sql": "SELECT id, name FROM header_items ORDER BY id", "bearer": null}))
