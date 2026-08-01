@@ -54,12 +54,13 @@ async fn live(
     operations: State<ReadOperations>,
     request: Request<LiveRequest>,
 ) -> Result<Streaming<LiveEvent, HandlerError>, HandlerError> {
+    let headers = wire_headers(request.headers());
     let request = request.into_payload();
     let principal = operations
         .authenticate(request.bearer.as_deref())
         .map_err(handler_error)?;
     let prepared = operations
-        .prepare(&request.sql, principal)
+        .prepare(&request.sql, principal, headers.as_deref())
         .await
         .map_err(handler_error)?;
     let subscription = operations

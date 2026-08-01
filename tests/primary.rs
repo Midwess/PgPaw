@@ -570,8 +570,7 @@ async fn embedded_child_reads_configured_database_and_observes_external_commits(
     assert!(
         matches!(update, LiveEvent::Insert { ref row, .. } if row == &json!({"id": 2, "name": "second"}))
     );
-    let marker: LiveEvent =
-        serde_json::from_slice(&live.next().await.unwrap().unwrap()).unwrap();
+    let marker: LiveEvent = serde_json::from_slice(&live.next().await.unwrap().unwrap()).unwrap();
     assert!(
         matches!(marker, LiveEvent::UpToDate { .. }),
         "each commit batch ends with up-to-date: {marker:?}"
@@ -602,6 +601,42 @@ async fn embedded_child_reads_configured_database_and_observes_external_commits(
         matches!(migrated, LiveEvent::Update { ref row, .. } if row == &json!({"id": 2, "name": "renamed"})),
         "{migrated:?}"
     );
+
+    let mut headered_live = parent
+        .subscribe_with(
+            LIVE_SUBJECT,
+            json!({"sql": "SELECT id, name FROM header_items ORDER BY id", "bearer": null}),
+            serde_json::Map::from_iter([("authorization".to_string(), json!("u1"))]),
+        )
+        .await
+        .unwrap();
+    let snapshot: LiveEvent =
+        serde_json::from_slice(&headered_live.next().await.unwrap().unwrap()).unwrap();
+    let LiveEvent::Snapshot { rows, .. } = snapshot else {
+        panic!("expected a snapshot: {snapshot:?}");
+    };
+    assert_eq!(
+        rows.unwrap(),
+        json!([{"id": 1, "name": "mine"}]),
+        "the initial live snapshot sees request.headers"
+    );
+    client
+        .batch_execute(
+            "INSERT INTO header_items VALUES (3, 'u1', 'mine too'), (4, 'u2', 'not mine')",
+        )
+        .await
+        .unwrap();
+    let delta = tokio::time::timeout(std::time::Duration::from_secs(5), headered_live.next())
+        .await
+        .expect("a commit wakes the headered subscription")
+        .unwrap()
+        .unwrap();
+    let delta: LiveEvent = serde_json::from_slice(&delta).unwrap();
+    assert!(
+        matches!(delta, LiveEvent::Insert { ref row, .. } if row == &json!({"id": 3, "name": "mine too"})),
+        "the delta re-query sees the subscribe-time request.headers: {delta:?}"
+    );
+    drop(headered_live);
 
     drop(live);
     tokio::time::timeout(std::time::Duration::from_secs(2), async {

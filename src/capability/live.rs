@@ -20,15 +20,17 @@ struct Subscription {
     sender: mpsc::UnboundedSender<String>,
     last: HashMap<String, Value>,
     principal: Option<Principal>,
+    headers: Option<String>,
 }
 
-type LiveJob = (
-    u64,
-    String,
-    Option<String>,
-    HashMap<String, Value>,
-    Option<Principal>,
-);
+struct LiveJob {
+    id: u64,
+    sql: String,
+    pk: Option<String>,
+    last: HashMap<String, Value>,
+    principal: Option<Principal>,
+    headers: Option<String>,
+}
 
 #[derive(Clone)]
 pub struct LiveHub {
@@ -95,6 +97,7 @@ impl LiveHub {
         version: u64,
         snapshot_body: &str,
         principal: Option<Principal>,
+        headers: Option<String>,
     ) -> LiveSubscription {
         let (sender, receiver) = mpsc::unbounded_channel();
         let pk = if tables.len() == 1 {
@@ -103,8 +106,9 @@ impl LiveHub {
             None
         };
 
+        let scoped = principal.is_some() || headers.is_some();
         let last = keyed_map(snapshot_body, pk.as_deref());
-        let first = if principal.is_some() {
+        let first = if scoped {
             let rows: Value = serde_json::from_str(snapshot_body).unwrap_or_else(|_| json!([]));
             json!({"type": "snapshot", "rows": rows, "version": version})
         } else {
@@ -116,7 +120,7 @@ impl LiveHub {
         log::info!(
             "event=live_subscription_registered id={} scope={} tables={} pk={:?} version={} snapshot_bytes={}",
             id,
-            if principal.is_some() { "private" } else { "public" },
+            if scoped { "private" } else { "public" },
             tables.join(","),
             pk,
             version,
@@ -131,6 +135,7 @@ impl LiveHub {
                 sender,
                 last,
                 principal,
+                headers,
             },
         );
         LiveSubscription {
@@ -169,14 +174,13 @@ impl LiveHub {
                         .iter()
                         .any(|table| changed.contains(&table.to_ascii_lowercase()))
                 })
-                .map(|(id, sub)| {
-                    (
-                        *id,
-                        sub.sql.clone(),
-                        sub.pk.clone(),
-                        sub.last.clone(),
-                        sub.principal.clone(),
-                    )
+                .map(|(id, sub)| LiveJob {
+                    id: *id,
+                    sql: sub.sql.clone(),
+                    pk: sub.pk.clone(),
+                    last: sub.last.clone(),
+                    principal: sub.principal.clone(),
+                    headers: sub.headers.clone(),
                 })
                 .collect()
         };
@@ -188,11 +192,23 @@ impl LiveHub {
             jobs.len(),
         );
 
-        for (id, sql, pk, last, principal) in jobs {
-            let fresh = match &principal {
-                Some(p) => rows::query_json_as(&self.db, &p.role, &p.claims_json, &sql).await,
-                None => rows::query_json(&self.db, &sql).await,
-            }
+        for LiveJob {
+            id,
+            sql,
+            pk,
+            last,
+            principal,
+            headers,
+        } in jobs
+        {
+            let fresh = rows::query_json_scoped(
+                &self.db,
+                principal.as_ref(),
+                headers.as_deref(),
+                &sql,
+                &[],
+            )
+            .await
             .unwrap_or_else(|_| "[]".to_string());
             let next = keyed_map(&fresh, pk.as_deref());
             let deltas = diff(&last, &next);
@@ -286,6 +302,7 @@ mod tests {
                 sender,
                 last: HashMap::new(),
                 principal: None,
+                headers: None,
             },
         );
         let subscription = LiveSubscription {

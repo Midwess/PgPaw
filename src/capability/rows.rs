@@ -2,16 +2,77 @@ use std::collections::HashSet;
 
 use pglite::PGlite;
 
+use crate::capability::auth::Principal;
 use crate::error::CacheError;
 
 pub fn wrap_json(sql: &str) -> String {
     format!("select coalesce(jsonb_agg(to_jsonb(_t)), '[]'::jsonb)::text as j from ({sql}) _t")
 }
 
-pub async fn ensure_unique_columns(db: &PGlite, sql: &str) -> Result<(), CacheError> {
-    let rows = db
-        .query(&format!("select * from ({sql}) _pgpaw_cols limit 1"), &[])
+pub async fn begin_scoped<'db>(
+    db: &'db PGlite,
+    role: Option<&str>,
+    claims: Option<&str>,
+    headers: Option<&str>,
+) -> Result<pglite::Transaction<'db>, CacheError> {
+    let tx = db.transaction().await?;
+    tx.query(
+        &format!(
+            "SET LOCAL statement_timeout = '{}s'",
+            crate::capability::sql::SQL_DEADLINE_SECS
+        ),
+        &[],
+    )
+    .await?;
+    if let Some(claims) = claims {
+        tx.query(
+            &format!("SET LOCAL request.jwt.claims = {}", sql_literal(claims)),
+            &[],
+        )
         .await?;
+    }
+    tx.query(
+        &format!(
+            "SET LOCAL request.headers = {}",
+            sql_literal(headers.unwrap_or("{}"))
+        ),
+        &[],
+    )
+    .await?;
+    if let Some(role) = role {
+        tx.query(&format!("SET LOCAL ROLE {}", sql_ident(role)), &[])
+            .await?;
+    }
+    Ok(tx)
+}
+
+pub async fn ensure_unique_columns(
+    db: &PGlite,
+    principal: Option<&Principal>,
+    headers: Option<&str>,
+    sql: &str,
+    params: &[serde_json::Value],
+) -> Result<(), CacheError> {
+    let boxed = to_sql_params(params);
+    let refs: Vec<&(dyn pglite::ToSql + Sync)> = boxed
+        .iter()
+        .map(|param| param.as_ref() as &(dyn pglite::ToSql + Sync))
+        .collect();
+    let probe = format!("select * from ({sql}) _pgpaw_cols limit 1");
+    let rows = if principal.is_none() && headers.is_none() {
+        db.query(&probe, &refs).await?
+    } else {
+        let tx = begin_scoped(
+            db,
+            Some(scoped_role(principal)),
+            principal.map(|principal| principal.claims_json.as_str()),
+            headers,
+        )
+        .await?;
+        let rows = tx.query(&probe, &refs).await?;
+        tx.commit().await?;
+        rows
+    };
     let Some(row) = rows.first() else {
         return Ok(());
     };
@@ -28,29 +89,47 @@ pub async fn ensure_unique_columns(db: &PGlite, sql: &str) -> Result<(), CacheEr
     Ok(())
 }
 
-pub async fn query_json(db: &PGlite, sql: &str) -> Result<String, CacheError> {
-    let rows = db.query(&wrap_json(sql), &[]).await?;
-    let body = match rows.first() {
-        Some(row) => row.get::<Option<String>>(0)?,
-        None => None,
+pub async fn query_json_scoped(
+    db: &PGlite,
+    principal: Option<&Principal>,
+    headers: Option<&str>,
+    sql: &str,
+    params: &[serde_json::Value],
+) -> Result<String, CacheError> {
+    let boxed = to_sql_params(params);
+    let refs: Vec<&(dyn pglite::ToSql + Sync)> = boxed
+        .iter()
+        .map(|param| param.as_ref() as &(dyn pglite::ToSql + Sync))
+        .collect();
+    let body = if principal.is_none() && headers.is_none() {
+        let rows = db.query(&wrap_json(sql), &refs).await?;
+        match rows.first() {
+            Some(row) => row.get::<Option<String>>(0)?,
+            None => None,
+        }
+    } else {
+        let tx = begin_scoped(
+            db,
+            Some(scoped_role(principal)),
+            principal.map(|principal| principal.claims_json.as_str()),
+            headers,
+        )
+        .await?;
+        let rows = tx.query(&wrap_json(sql), &refs).await?;
+        let body = match rows.first() {
+            Some(row) => row.get::<Option<String>>(0)?,
+            None => None,
+        };
+        tx.commit().await?;
+        body
     };
     Ok(body.unwrap_or_else(|| "[]".to_string()))
 }
 
-pub async fn query_json_as(
-    db: &PGlite,
-    role: &str,
-    claims: &str,
-    sql: &str,
-) -> Result<String, CacheError> {
-    let rows = db
-        .query_as(role, Some(claims), &wrap_json(sql), &[])
-        .await?;
-    let body = match rows.first() {
-        Some(row) => row.get::<Option<String>>(0)?,
-        None => None,
-    };
-    Ok(body.unwrap_or_else(|| "[]".to_string()))
+fn scoped_role(principal: Option<&Principal>) -> &str {
+    principal
+        .map(|principal| principal.role.as_str())
+        .unwrap_or(crate::capability::sql::DEFAULT_PUBLIC_ROLE)
 }
 
 pub struct SqlOutcome {
@@ -178,32 +257,7 @@ pub async fn run_sql_as(
         .iter()
         .map(|param| param.as_ref() as &(dyn pglite::ToSql + Sync))
         .collect();
-    let tx = db.transaction().await?;
-    tx.query(
-        &format!(
-            "SET LOCAL statement_timeout = '{}s'",
-            crate::capability::sql::SQL_DEADLINE_SECS
-        ),
-        &[],
-    )
-    .await?;
-    if let Some(claims) = claims {
-        tx.query(
-            &format!("SET LOCAL request.jwt.claims = {}", sql_literal(claims)),
-            &[],
-        )
-        .await?;
-    }
-    tx.query(
-        &format!(
-            "SET LOCAL request.headers = {}",
-            sql_literal(headers.unwrap_or("{}"))
-        ),
-        &[],
-    )
-    .await?;
-    tx.query(&format!("SET LOCAL ROLE {}", sql_ident(role)), &[])
-        .await?;
+    let tx = begin_scoped(db, Some(role), claims, headers).await?;
     let outcome = async {
         if validated.command == "SELECT" {
             let wrapped = format!(

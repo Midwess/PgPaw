@@ -30,7 +30,7 @@ pub async fn query(
     };
 
     let read = match operations
-        .prepare(body.sql.as_str(), principal.clone())
+        .prepare(body.sql.as_str(), principal.clone(), None)
         .await
     {
         Ok(read) => read,
@@ -114,6 +114,7 @@ async fn live_query(
     let read = crate::capability::read::PreparedRead {
         query,
         principal,
+        headers: None,
         private: false,
     };
     let subscription = match operations.subscribe(read).await {

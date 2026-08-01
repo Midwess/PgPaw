@@ -33,6 +33,7 @@ pub struct ReadOperations {
 pub struct PreparedRead {
     pub query: CacheableQuery,
     pub principal: Option<Principal>,
+    pub headers: Option<String>,
     pub private: bool,
 }
 
@@ -145,6 +146,7 @@ impl ReadOperations {
         &self,
         sql: &str,
         principal: Option<Principal>,
+        headers: Option<&str>,
     ) -> Result<PreparedRead, CacheError> {
         #[cfg(feature = "server")]
         if let Some(replica) = &self.replica {
@@ -158,39 +160,44 @@ impl ReadOperations {
         }
         let query = self.classifier.classify(sql)?;
         if query.tables.len() > 1 {
-            rows::ensure_unique_columns(&self.db, &query.sql).await?;
+            rows::ensure_unique_columns(&self.db, principal.as_ref(), headers, &query.sql, &[])
+                .await?;
         }
         let private = self.is_private(&query.tables).await?;
-        if private && principal.is_none() {
+        if private && principal.is_none() && headers.is_none() {
             return Err(CacheError::Unauthorized(
-                "this query is access-controlled; a bearer token is required".to_string(),
+                "this query is access-controlled; a bearer token or request identity is required"
+                    .to_string(),
             ));
         }
         Ok(PreparedRead {
             query,
             principal,
+            headers: headers.map(str::to_string),
             private,
         })
     }
 
     pub async fn execute_private(&self, read: &PreparedRead) -> Result<String, CacheError> {
-        let principal = read.principal.as_ref().ok_or_else(|| {
-            CacheError::Unauthorized(
-                "this query is access-controlled; a bearer token is required".to_string(),
-            )
-        })?;
-        rows::query_json_as(
+        if read.principal.is_none() && read.headers.is_none() {
+            return Err(CacheError::Unauthorized(
+                "this query is access-controlled; a bearer token or request identity is required"
+                    .to_string(),
+            ));
+        }
+        rows::query_json_scoped(
             &self.db,
-            &principal.role,
-            &principal.claims_json,
+            read.principal.as_ref(),
+            read.headers.as_deref(),
             &read.query.sql,
+            &[],
         )
         .await
         .map_err(map_db_denial)
     }
 
     pub async fn execute_public(&self, read: &PreparedRead) -> Result<String, CacheError> {
-        rows::query_json(&self.db, &read.query.sql).await
+        rows::query_json_scoped(&self.db, None, None, &read.query.sql, &[]).await
     }
 
     pub async fn materialize(
@@ -207,7 +214,9 @@ impl ReadOperations {
         let db = self.db.clone();
         let snapshot = self
             .cache
-            .get_or_compute(key, async move { rows::query_json(&db, &sql).await })
+            .get_or_compute(key, async move {
+                rows::query_json_scoped(&db, None, None, &sql, &[]).await
+            })
             .await?;
         Ok((hash, version, snapshot))
     }
@@ -231,36 +240,36 @@ impl ReadOperations {
             .versions
             .version_of(&read.query.tables, &read.query.eq_filters)
             .0;
-        match read.principal {
-            Some(principal) => {
-                let body = rows::query_json_as(
-                    &self.db,
-                    &principal.role,
-                    &principal.claims_json,
-                    &read.query.sql,
-                )
-                .await
-                .map_err(map_db_denial)?;
-                Ok(self.live.subscribe(
-                    read.query.sql,
-                    read.query.tables,
-                    String::new(),
-                    version,
-                    &body,
-                    Some(principal),
-                ))
-            }
-            None => {
-                let (hash, version, snapshot) = self.materialize(&read).await?;
-                Ok(self.live.subscribe(
-                    read.query.sql,
-                    read.query.tables,
-                    hash,
-                    version,
-                    &snapshot.body,
-                    None,
-                ))
-            }
+        if read.principal.is_some() || read.headers.is_some() {
+            let body = rows::query_json_scoped(
+                &self.db,
+                read.principal.as_ref(),
+                read.headers.as_deref(),
+                &read.query.sql,
+                &[],
+            )
+            .await
+            .map_err(map_db_denial)?;
+            Ok(self.live.subscribe(
+                read.query.sql,
+                read.query.tables,
+                String::new(),
+                version,
+                &body,
+                read.principal,
+                read.headers,
+            ))
+        } else {
+            let (hash, version, snapshot) = self.materialize(&read).await?;
+            Ok(self.live.subscribe(
+                read.query.sql,
+                read.query.tables,
+                hash,
+                version,
+                &snapshot.body,
+                None,
+                None,
+            ))
         }
     }
 
