@@ -527,6 +527,12 @@ async fn embedded_child_reads_configured_database_and_observes_external_commits(
     assert!(
         matches!(update, LiveEvent::Insert { ref row, .. } if row == &json!({"id": 2, "name": "second"}))
     );
+    let marker: LiveEvent =
+        serde_json::from_slice(&live.next().await.unwrap().unwrap()).unwrap();
+    assert!(
+        matches!(marker, LiveEvent::UpToDate { .. }),
+        "each commit batch ends with up-to-date: {marker:?}"
+    );
 
     let chain = pgpaw::schema::AppChain {
         app: "items_app".into(),
@@ -538,7 +544,11 @@ async fn embedded_child_reads_configured_database_and_observes_external_commits(
             checksum: pgpaw::schema::content_hash("UPDATE items SET name = 'renamed' WHERE id = 2"),
         }],
     };
-    pgpaw.schema_ops().apply_migrations("w", &[chain]).await.unwrap();
+    pgpaw
+        .schema_ops()
+        .apply_migrations("w", &[chain])
+        .await
+        .unwrap();
     let migrated = tokio::time::timeout(std::time::Duration::from_secs(5), live.next())
         .await
         .expect("a schema-ops migration commit wakes the live subscription")

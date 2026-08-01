@@ -21,8 +21,7 @@ async fn replica_with_az_wire_host_binds_serves_and_releases() {
         .await;
     let data = tempfile::tempdir().expect("tempdir");
     let address = free_address();
-    let mut host = az_wire::HostConfig::new(address);
-    host.webtransport = false;
+    let host = az_wire::HostConfig::tcp(address, az_wire::TcpTransport::plain());
 
     let pgpaw = pgpaw::PgPaw::builder()
         .source(pgpaw::PgSource::replica(pgpaw::ReplicaSource {
