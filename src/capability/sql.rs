@@ -127,8 +127,7 @@ impl SqlOperations {
             let owns_database: i32 = row.get(2)?;
             if owns_database == 1 {
                 return Err(CacheError::Forbidden(
-                    "public SQL never executes as the database owner or a member of it"
-                        .to_string(),
+                    "public SQL never executes as the database owner or a member of it".to_string(),
                 ));
             }
         }

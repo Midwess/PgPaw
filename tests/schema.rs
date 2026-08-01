@@ -64,10 +64,7 @@ async fn migrations_apply_once_reflect_and_stay_immutable() {
     assert_eq!(rerun.applied.len(), 0);
     assert_eq!(rerun.already_applied, 2);
 
-    let tables = schema
-        .reflect_tables(&["todos".to_string()])
-        .await
-        .unwrap();
+    let tables = schema.reflect_tables(&["todos".to_string()]).await.unwrap();
     assert_eq!(tables[0].columns.len(), 3);
     assert_eq!(tables[0].primary_key, vec!["id"]);
 

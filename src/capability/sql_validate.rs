@@ -53,7 +53,7 @@ fn connection_scoped(statement: &Statement) -> Option<&'static str> {
         Statement::SetNames { .. } | Statement::SetNamesDefault {} => Some("SET NAMES"),
         Statement::SetRole { .. } => Some("SET ROLE"),
         Statement::LISTEN { .. } => Some("LISTEN"),
-        
+
         Statement::NOTIFY { .. } => Some("NOTIFY"),
         Statement::Discard { .. } => Some("DISCARD"),
         Statement::Deallocate { .. } => Some("DEALLOCATE"),
@@ -200,11 +200,8 @@ mod tests {
 
     #[test]
     fn dml_with_returning_returns_rows_directly() {
-        let v = validate_one_statement(
-            "UPDATE t SET a = 2 WHERE id = $1 RETURNING id, a",
-            1024,
-        )
-        .unwrap();
+        let v = validate_one_statement("UPDATE t SET a = 2 WHERE id = $1 RETURNING id, a", 1024)
+            .unwrap();
         assert_eq!(v.command, "UPDATE");
         assert!(v.returns_rows);
         assert!(!v.needs_count_wrap);
@@ -261,13 +258,12 @@ mod tests {
             1024,
         )
         .unwrap_err();
-        assert!(error.to_string().contains("more than one output column named `id`"));
+        assert!(error
+            .to_string()
+            .contains("more than one output column named `id`"));
 
-        let error = validate_one_statement(
-            "DELETE FROM t WHERE id = 1 RETURNING *, id",
-            1024,
-        )
-        .unwrap_err();
+        let error =
+            validate_one_statement("DELETE FROM t WHERE id = 1 RETURNING *, id", 1024).unwrap_err();
         assert!(error.to_string().contains("wildcard"));
 
         validate_one_statement("DELETE FROM t WHERE id = 1 RETURNING *", 1024).unwrap();
@@ -276,6 +272,8 @@ mod tests {
     #[test]
     fn unparseable_sql_is_rejected_explicitly() {
         let error = validate_one_statement("FLY ME TO THE MOON", 1024).unwrap_err();
-        assert!(error.to_string().contains("one parseable PostgreSQL statement"));
+        assert!(error
+            .to_string()
+            .contains("one parseable PostgreSQL statement"));
     }
 }

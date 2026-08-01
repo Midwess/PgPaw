@@ -41,7 +41,10 @@ impl std::fmt::Debug for PgPaw {
 }
 
 impl PgPaw {
-    pub fn sql_operations(&self, public_role: Option<String>) -> crate::capability::sql::SqlOperations {
+    pub fn sql_operations(
+        &self,
+        public_role: Option<String>,
+    ) -> crate::capability::sql::SqlOperations {
         self.read.sql_operations(public_role)
     }
 

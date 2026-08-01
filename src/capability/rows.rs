@@ -58,9 +58,7 @@ pub struct SqlOutcome {
     pub rows_affected: u64,
 }
 
-pub fn to_sql_params(
-    params: &[serde_json::Value],
-) -> Vec<Box<dyn pglite::ToSql + Sync + Send>> {
+pub fn to_sql_params(params: &[serde_json::Value]) -> Vec<Box<dyn pglite::ToSql + Sync + Send>> {
     params
         .iter()
         .map(|param| -> Box<dyn pglite::ToSql + Sync + Send> { Box::new(JsonParam(param.clone())) })
@@ -182,7 +180,10 @@ pub async fn run_sql_as(
         .collect();
     let tx = db.transaction().await?;
     tx.query(
-        &format!("SET LOCAL statement_timeout = '{}s'", crate::capability::sql::SQL_DEADLINE_SECS),
+        &format!(
+            "SET LOCAL statement_timeout = '{}s'",
+            crate::capability::sql::SQL_DEADLINE_SECS
+        ),
         &[],
     )
     .await?;

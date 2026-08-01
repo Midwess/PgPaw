@@ -110,7 +110,10 @@ impl ReadOperations {
         self.live.subscription_count()
     }
 
-    pub(crate) fn sql_operations(&self, public_role: Option<String>) -> crate::capability::sql::SqlOperations {
+    pub(crate) fn sql_operations(
+        &self,
+        public_role: Option<String>,
+    ) -> crate::capability::sql::SqlOperations {
         #[cfg(feature = "server")]
         let read_only = self.replica.is_some();
         #[cfg(not(feature = "server"))]

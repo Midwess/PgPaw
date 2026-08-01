@@ -30,6 +30,8 @@ struct Cli {
 enum Command {
     /// Prepare upstream Postgres for PgPaw replication
     Init(InitOptions),
+    /// Apply PgPaw-owned application migrations to an embedded primary
+    Migrate(MigrationOptions),
     /// Run the PgPaw HTTP query and realtime server (default)
     Serve(Box<ServeOptions>),
     /// Run PgPaw as an embedded writable Postgres primary
@@ -78,6 +80,25 @@ struct ServeOptions {
 struct InitOptions {
     #[command(flatten)]
     postgres: PostgresOptions,
+}
+
+#[derive(Args, Clone)]
+struct MigrationOptions {
+    /// Root containing migrations/ or apps/<app>/migrations/
+    #[arg(long)]
+    source: PathBuf,
+    /// Stable application namespace recorded in the migration ledger
+    #[arg(long)]
+    namespace: String,
+    /// Data directory for the embedded Postgres primary
+    #[arg(long, env = "PGPAW_DATA_DIR", default_value = "./cache-data")]
+    data_dir: PathBuf,
+    /// Database receiving the application schema
+    #[arg(long, env = "PGPAW_DATABASE", default_value = "postgres")]
+    database: String,
+    /// Maximum pooled connections while applying migrations
+    #[arg(long, env = "PGPAW_MAX_CONNECTIONS", default_value_t = 8)]
+    max_connections: usize,
 }
 
 #[derive(Args, Clone)]
@@ -303,6 +324,10 @@ async fn run_cli() -> Result<(), CacheError> {
             log::info!("event=command_start command=init");
             init(options.postgres.upstream(), &options.postgres.publication).await?
         }
+        Some(Command::Migrate(options)) => {
+            log::info!("event=command_start command=migrate");
+            migrate(options).await?
+        }
         Some(Command::Serve(options)) => {
             log::info!("event=command_start command=serve");
             run_pgpaw(options.builder()?).await?
@@ -317,6 +342,33 @@ async fn run_cli() -> Result<(), CacheError> {
         }
     }
     Ok(())
+}
+
+async fn migrate(options: MigrationOptions) -> Result<(), CacheError> {
+    let (chains, warnings) =
+        pgpaw::schema::discover_migrations(&options.source, &options.namespace)?;
+    for warning in warnings {
+        log::warn!("event=migration_warning message={warning:?}");
+    }
+    let pgpaw = PgPaw::builder()
+        .source(PgSource::primary(EmbeddedPrimarySource {
+            database: options.database,
+            min_connections: 0,
+            max_connections: options.max_connections,
+            ..EmbeddedPrimarySource::embedded(options.data_dir)
+        }))
+        .open()
+        .await?;
+    let report = pgpaw
+        .schema_ops()
+        .apply_migrations(&options.namespace, &chains)
+        .await?;
+    log::info!(
+        "event=migrations_applied applied={} already_applied={}",
+        report.applied.len(),
+        report.already_applied
+    );
+    pgpaw.shutdown().await
 }
 
 async fn run_pgpaw(builder: PgPawBuilder) -> Result<(), CacheError> {
@@ -528,6 +580,30 @@ mod tests {
             options.az_wire_parent_unix.as_deref(),
             Some(std::path::Path::new("/tmp/worldant.sock"))
         );
+    }
+
+    #[test]
+    fn migrate_parses_source_world_and_primary() {
+        let parsed = Cli::try_parse_from([
+            "pgpaw",
+            "migrate",
+            "--source",
+            "schema",
+            "--namespace",
+            "todo",
+            "--data-dir",
+            "data",
+            "--database",
+            "app",
+        ])
+        .unwrap();
+        let Some(Command::Migrate(options)) = parsed.command else {
+            panic!("expected migrate command");
+        };
+        assert_eq!(options.source, std::path::Path::new("schema"));
+        assert_eq!(options.namespace, "todo");
+        assert_eq!(options.data_dir, std::path::Path::new("data"));
+        assert_eq!(options.database, "app");
     }
 
     #[cfg(unix)]

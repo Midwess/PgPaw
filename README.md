@@ -779,6 +779,17 @@ Build the CLI:
 cargo build --bin pgpaw
 ```
 
+Apply an application migration chain to an embedded primary before its runtime starts:
+
+```bash
+pgpaw migrate --source ./app-schema --namespace todo \
+  --data-dir ./data --database postgres
+```
+
+The source root contains either `migrations/` for one application or
+`apps/<app>/migrations/` for several applications. PgPaw owns discovery, immutability checks,
+destructive-change acknowledgement, and the applied-migration ledger.
+
 Run the Node integration tests from `integration-tests/node` after building the
 release binary they expect:
 

@@ -129,10 +129,7 @@ pub fn discover_migrations(
 
 pub const DESTRUCTIVE_ACK: &str = "pgpaw: acknowledge-destructive";
 
-fn check_destructive_acknowledged(
-    rel_dir: &Path,
-    file: &MigrationFile,
-) -> Result<(), CacheError> {
+fn check_destructive_acknowledged(rel_dir: &Path, file: &MigrationFile) -> Result<(), CacheError> {
     use sqlparser::ast::{AlterTableOperation, ObjectType, Statement};
     let destructive = match sqlparser::parser::Parser::parse_sql(
         &sqlparser::dialect::PostgreSqlDialect {},
