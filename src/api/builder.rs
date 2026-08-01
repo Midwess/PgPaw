@@ -84,6 +84,14 @@ impl PgPawBuilder {
             #[cfg(feature = "az-wire")]
             az_wire: Vec::new(),
         };
+        if matches!(
+            pgpaw.shutdown_state,
+            crate::api::runtime::SourceShutdown::Primary { .. }
+        ) {
+            if let Err(error) = pgpaw.schema_ops().handoff_legacy_ledgers().await {
+                return Err(pgpaw.abort_open(error).await);
+            }
+        }
         #[cfg(feature = "server")]
         if let Some(http) = self.http {
             let data = actix_web::web::Data::new(pgpaw.read.clone());

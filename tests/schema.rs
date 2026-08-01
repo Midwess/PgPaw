@@ -172,3 +172,34 @@ async fn legacy_ledger_handoff_is_atomic_and_rerun_safe() {
 
     pgpaw.shutdown().await.unwrap();
 }
+
+#[tokio::test]
+#[serial_test::serial]
+async fn primary_open_bootstraps_ledgers_without_a_caller() {
+    ensure_runtime_dir();
+    let port: u16 = 43000 + (std::process::id() % 15000) as u16;
+    let dir = tempfile::tempdir().unwrap();
+
+    let pgpaw = open_primary(&dir.path().join("data"), port).await;
+    let dsn = format!("postgres://postgres@127.0.0.1:{port}/schema_test");
+    let (client, connection) = tokio_postgres::connect(&dsn, NoTls).await.unwrap();
+    let connection = tokio::spawn(async move {
+        let _ = connection.await;
+    });
+    let present: i32 = client
+        .query_one(
+            "SELECT ((to_regclass('pgpaw_applied_migrations') IS NOT NULL) \
+             AND (to_regclass('pgpaw_app_schemas') IS NOT NULL))::int",
+            &[],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(present, 1, "ledgers exist after open with no caller involvement");
+    drop(client);
+    connection.abort();
+    pgpaw.shutdown().await.unwrap();
+
+    let reopened = open_primary(&dir.path().join("data"), port).await;
+    reopened.shutdown().await.unwrap();
+}

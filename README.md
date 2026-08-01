@@ -260,8 +260,18 @@ Actix HTTP and native az-wire bind independent listeners over shared PgPaw state
 never passes through Actix. Startup reports readiness only after both listeners bind, and failure of
 either listener rolls back startup.
 
-The native subjects are `pgpaw.read`, `pgpaw.cursor`, and `pgpaw.live`. They preserve the HTTP
-read-only SQL, authorization, cache, cursor, and live-query semantics. Mutating SQL is rejected.
+The native subjects are `pgpaw.sql` and `pgpaw.live`. `pgpaw.sql` executes one parameterized
+statement under a server-selected non-owner role; `pgpaw.live` accepts one realtime-safe read
+query with an optional `params` array bound as PostgreSQL placeholders, and streams a snapshot
+followed by change events. Two subscriptions with identical SQL and different `params` never share
+a cache key or a snapshot.
+
+Both roots project the request's transport headers into the executing transaction as
+`request.headers` — names lowercased, values as strings, reserved `az-*` transport names excluded,
+an empty JSON object when the request carries none — so row-level-security policies can key on
+caller identity, for example `current_setting('request.headers', true)::jsonb->>'authorization'`.
+A live subscription retains its subscribe-time headers and reapplies them to every delta re-query,
+so a policy sees the same identity for the snapshot and for every change that follows.
 
 ### Embedded primary
 
