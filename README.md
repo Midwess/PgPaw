@@ -267,7 +267,7 @@ followed by change events. Two subscriptions with identical SQL and different `p
 a cache key or a snapshot.
 
 Both roots project the request's transport headers into the executing transaction as
-`request.headers` — names lowercased, values as strings, reserved `az-*` transport names excluded,
+`request.headers` — names lowercased, values as strings, reserved `unb-*` transport names excluded,
 an empty JSON object when the request carries none — so row-level-security policies can key on
 caller identity, for example `current_setting('request.headers', true)::jsonb->>'authorization'`.
 A live subscription retains its subscribe-time headers and reapplies them to every delta re-query,

@@ -79,7 +79,7 @@ fn parse_rows(body: String) -> Result<Value, CacheError> {
 fn wire_headers(headers: &unb::http::HeaderMap) -> Option<String> {
     let headers = headers
         .iter()
-        .filter(|(name, _)| !name.as_str().starts_with("az-"))
+        .filter(|(name, _)| !name.as_str().starts_with("unb-"))
         .filter_map(|(name, value)| {
             value
                 .to_str()
@@ -179,7 +179,7 @@ mod tests {
     fn wire_headers_project_lowercase_and_strip_reserved_names() {
         let mut headers = unb::http::HeaderMap::new();
         headers.insert("Authorization", "u1".parse().unwrap());
-        headers.insert("az-peer", "transport".parse().unwrap());
+        headers.insert("unb-peer", "transport".parse().unwrap());
         let projected = super::wire_headers(&headers).unwrap();
         let value: serde_json::Value = serde_json::from_str(&projected).unwrap();
         assert_eq!(value, serde_json::json!({"authorization": "u1"}));
