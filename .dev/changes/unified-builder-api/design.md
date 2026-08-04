@@ -9,7 +9,7 @@ CLI flags
   -> Source config (ReplicaSource | PrimarySource)
   -> PgPaw builder (.cache, .auth)
   -> optional HTTP binding (HttpConfig)
-  -> optional az_wire::NodeBuilder + az_wire::TopologyConfig (repeatable)
+  -> optional unb::NodeBuilder + unb::TopologyConfig (repeatable)
   -> PgPaw runtime (wait / shutdown / primary_dsn)
 ```
 
@@ -28,8 +28,8 @@ PgPawBuilder::open()
   │                                          → ReadOperations::primary → PrimaryObserver::start
   │     → (ReadOperations, PGlite, Option<dsn>, SourceShutdown)
   ├── HTTP binding:   bind_at(addr, cors, web::Data<ReadOperations>)     [if .http()]
-  └── az-wire binding: register_az_wire(node, read.clone()).build()?
-                         .start_topology(topology)                        [per .az_wire()]
+  └── unb binding: register_unb(node, read.clone()).build()?
+                         .start_topology(topology)                        [per .unb()]
 ```
 
 Bindings never see the `Source` — they consume `ReadOperations` uniformly. This is what makes HTTP-over-primary fall out for free.
@@ -46,11 +46,11 @@ Bindings never see the `Source` — they consume `ReadOperations` uniformly. Thi
 
 ### Decision 2: Read core built uniformly — branch once on `Source`
 
-**Context:** Replica core is built eagerly in `Di::init`; primary core lazily in `attach_child` and only when az-wire is requested. Decision locked: any binding over any source.
+**Context:** Replica core is built eagerly in `Di::init`; primary core lazily in `attach_child` and only when unb is requested. Decision locked: any binding over any source.
 **Options:**
 1. Merge `ReadOperations::new`/`::primary` and `CdcBridge::start`/`::primary` into single constructors — invasive, churns unrelated internals.
 2. Keep dual constructors; `build_read_core` is the single call site branching once on `Source`, both arms converging on `ReadOperations`.
-**Decision:** Option 2 (Least New Definitions: reuse existing constructors). Requires re-gating `PrimaryObserver` and `CdcBridge::primary`/`publish` from `az-wire` to `read` — primary CDC is now needed by HTTP too.
+**Decision:** Option 2 (Least New Definitions: reuse existing constructors). Requires re-gating `PrimaryObserver` and `CdcBridge::primary`/`publish` from `unb` to `read` — primary CDC is now needed by HTTP too.
 
 ### Decision 3: Source-specific runtime state = `SourceShutdown` enum
 
@@ -71,12 +71,12 @@ Bindings never see the `Source` — they consume `ReadOperations` uniformly. Thi
 ### Decision 5: Canonical shutdown ordering
 
 **Context:** Two divergent orderings exist (server: HTTP→topology→replica/cdc/db; primary: topology→observer→db.close); HTTP-on-primary has no precedent.
-**Decision:** One ordering in `PgPaw::shutdown()`: HTTP stop → az-wire topologies in registration order → `SourceShutdown` teardown (replica.stop + cdc.stop, or observer.shutdown) → db close last. All binding lifecycle errors standardized on `CacheError::lifecycle(LifecycleErrorKind::{Topology,Shutdown}, _)` (the old paths inconsistently used `CacheError::Config`).
+**Decision:** One ordering in `PgPaw::shutdown()`: HTTP stop → unb topologies in registration order → `SourceShutdown` teardown (replica.stop + cdc.stop, or observer.shutdown) → db close last. All binding lifecycle errors standardized on `CacheError::lifecycle(LifecycleErrorKind::{Topology,Shutdown}, _)` (the old paths inconsistently used `CacheError::Config`).
 
 ### Decision 6: `wait()` semantics and signals
 
 **Context:** `run()` embedded signal handling; embedded primary use (dsn-only, zero bindings) must stay alive without spinning.
-**Decision:** `wait(&mut self)` selects biased over all binding futures, returns first fatal error or clean completion; zero bindings → pends until shutdown. Signal handling moves entirely to `main.rs` (CLI races `wait()` against `shutdown_signal`, then calls `shutdown()`). `wait` takes `&mut self` because actix `Server` and `AzWireTopology::wait` poll by `&mut` — callers bind `let mut pgpaw`.
+**Decision:** `wait(&mut self)` selects biased over all binding futures, returns first fatal error or clean completion; zero bindings → pends until shutdown. Signal handling moves entirely to `main.rs` (CLI races `wait()` against `shutdown_signal`, then calls `shutdown()`). `wait` takes `&mut self` because actix `Server` and `UnbTopology::wait` poll by `&mut` — callers bind `let mut pgpaw`.
 
 ### Decision 7: Placement and open-question resolutions
 
@@ -91,7 +91,7 @@ Public surface after the change (crate root):
 
 ```rust
 pub use composition::{PgPaw, PgPawBuilder, Source, ReplicaSource, PrimarySource,
-                      UpstreamConfig, CacheConfig, HttpConfig, AzWireConfig};
+                      UpstreamConfig, CacheConfig, HttpConfig, UnbConfig};
 pub use auth::AuthConfig;
 pub use error::{CacheError, LifecycleErrorKind};
 pub use operations::{PreparedRead, ReadOperations};
@@ -100,9 +100,9 @@ pub use shadow::{open_shadow, ShadowHandle};
 pub async fn init(upstream: UpstreamConfig) -> Result<(), CacheError>;   // unchanged
 ```
 
-Deleted: `run`, `run_until`, `ServerConfig`, old `UpstreamConfig` home, `Di`, `open_primary`, `run_primary`, `PrimaryConfig`, `PrimaryHandle`, `EmbeddedVerifierConfig`, `register_az_wire`.
+Deleted: `run`, `run_until`, `ServerConfig`, old `UpstreamConfig` home, `Di`, `open_primary`, `run_primary`, `PrimaryConfig`, `PrimaryHandle`, `EmbeddedVerifierConfig`, `register_unb`.
 
-HTTP endpoints, wire protocol, and az-wire subjects are byte-for-byte unchanged; only construction changes.
+HTTP endpoints, wire protocol, and unb subjects are byte-for-byte unchanged; only construction changes.
 
 ## Security Considerations
 

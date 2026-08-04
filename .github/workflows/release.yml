@@ -34,8 +34,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - name: strip private az-wire feature
-        run: perl -ni -e 'print unless /az-wire/' Cargo.toml integration-tests/Cargo.toml bench/Cargo.toml
+      - name: strip private unb feature
+        run: perl -ni -e 'print unless /unb/' Cargo.toml integration-tests/Cargo.toml bench/Cargo.toml
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -76,8 +76,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: strip private az-wire feature
-        run: perl -ni -e 'print unless /az-wire/' Cargo.toml integration-tests/Cargo.toml bench/Cargo.toml
+      - name: strip private unb feature
+        run: perl -ni -e 'print unless /unb/' Cargo.toml integration-tests/Cargo.toml bench/Cargo.toml
       - uses: dtolnay/rust-toolchain@stable
       - name: publish to crates.io
         env:

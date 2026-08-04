@@ -57,7 +57,7 @@ mod runtime;
 Ten `mod X;` lines (auth, cache, cdc, classify, diff, live, read, rows, schema, version). Parent `mod capability;` is read-gated in lib.rs.
 
 ### `src/binding/mod.rs`
-`#[cfg(feature = "az-wire")] mod az_wire; #[cfg(feature = "server")] pub(crate) mod http;`
+`#[cfg(feature = "unb")] mod unb; #[cfg(feature = "server")] pub(crate) mod http;`
 
 ### `src/binding/http/mod.rs`
 1:1 copy of current `src/http/mod.rs` (sibling `super::` refs in server.rs stay valid).
@@ -79,7 +79,7 @@ Ten `mod X;` lines (auth, cache, cdc, classify, diff, live, read, rows, schema, 
 | `capability/mod.rs` + 10 files | whole-file moves; `operations.rs`→`read.rs`; **preserve `is_private` complementary cfg arms** | High | 3 |
 | `api/{mod,config,builder,runtime}.rs` | composition.rs split; renames; `SourceShutdown` → pub(crate); composition tests → runtime.rs with explicit `use crate::api::config::{PgSource, EmbeddedPrimarySource};` | High | 4 |
 | `source/{mod,replica,primary}.rs` | assembly bodies + dispatcher (merged into Phase 4) | Med | 4 |
-| `binding/{mod,az_wire}.rs`, `binding/http/*` | 1:1 moves | Low | 5 |
+| `binding/{mod,unb}.rs`, `binding/http/*` | 1:1 moves | Low | 5 |
 
 ### MODIFY
 
@@ -89,22 +89,22 @@ Ten `mod X;` lines (auth, cache, cdc, classify, diff, live, read, rows, schema, 
 | `src/tests/mod.rs` | 4 import lines | 3 |
 | `src/main.rs` | import renames + 2 call sites | 6 |
 | `tests/primary.rs` | L1 imports, L11 wire→protocol, 11 rename sites | 7 |
-| `integration-tests/src/lib.rs` (L145, L311), `az_wire_replica.rs` (L28), `bench/src/main.rs` (L261) | `pgpaw::Source::replica`→`pgpaw::PgSource::replica` | 7 |
+| `integration-tests/src/lib.rs` (L145, L311), `unb_replica.rs` (L28), `bench/src/main.rs` (L261) | `pgpaw::Source::replica`→`pgpaw::PgSource::replica` | 7 |
 | `README.md` | snippet/prose renames (~L268/275/289) + `target=` log examples (~L641-652) | 7 |
 
 ### DELETE (same phase as content moves + consumer repointing)
 
-wire.rs (P1) · primary.rs, shadow.rs, setup.rs (P2) · classify/diff/cache/version/rows/schema/cdc/live/auth/operations.rs (P3) · composition.rs (P4) · http/ dir, az_wire.rs (P5)
+wire.rs (P1) · primary.rs, shadow.rs, setup.rs (P2) · classify/diff/cache/version/rows/schema/cdc/live/auth/operations.rs (P3) · composition.rs (P4) · http/ dir, unb.rs (P5)
 
 ## Implementation Phases
 
-Exit gate for EVERY phase: 4-combo matrix green — `--no-default-features --features read` · default (`server`) · `--no-default-features --features az-wire` · `--all-features`; plus `cargo test --all-features --no-run` after test-moving phases (3, 4).
+Exit gate for EVERY phase: 4-combo matrix green — `--no-default-features --features read` · default (`server`) · `--no-default-features --features unb` · `--all-features`; plus `cargo test --all-features --no-run` after test-moving phases (3, 4).
 
-1. **protocol/**: split wire.rs; lib.rs `pub mod wire` → `pub mod protocol`; repoint az_wire.rs imports (file not yet moved); delete wire.rs. Gate: `git grep 'crate::wire'` empty.
+1. **protocol/**: split wire.rs; lib.rs `pub mod wire` → `pub mod protocol`; repoint unb.rs imports (file not yet moved); delete wire.rs. Gate: `git grep 'crate::wire'` empty.
 2. **db/**: move shadow, setup, primary (keep every gate line); db/mod.rs re-exports; lib.rs repoints `recover_primary`/`open_shadow`; repoint composition.rs `crate::{primary,setup}::` calls. **R-new-1**: setup.rs/primary.rs keep temporary `crate::composition::{UpstreamConfig,PrimarySource}` imports until Phase 4 flips them to `crate::api::config::*`. Gate: read-only combo still exposes ungated recovery.
-3. **capability/**: move 10 files (classify/diff/rows/schema/cache/version → cdc/live → auth → read last); keep duplicate `change_table`; capability/mod.rs; lib.rs repoints AuthConfig/ReadOperations/PreparedRead/HealthStatus; repoint composition.rs, az_wire.rs, http/*, src/tests/mod.rs imports; delete 10 files. Gate: stale-path grep empty + tests compile.
-4. **api/ + source/ (one step)**: create api/config (renames + 8 gate rules), api/runtime (PgPaw + SourceShutdown pub(crate) + composition tests with renames), api/builder (open → `crate::source::build_read_core`, `crate::binding::*` paths — binding lands P5, so builder's binding paths flip in P5; alternatively keep `crate::http`/`crate::az_wire` paths until P5); create source/{mod,replica,primary}; flip db temp imports (4.6); lib.rs repoints + renames; delete composition.rs. Gate: `git grep 'crate::composition\|Self::build_read_core'` empty; tests compile.
-5. **binding/**: move http/ 1:1 + az_wire.rs; binding/mod.rs; lib.rs `mod binding;`; flip api/builder.rs binding paths; delete src/http/, src/az_wire.rs. Gate: `git grep 'crate::http::\|crate::az_wire::'` empty. (R-new-2: `#[handler]` macro is signature-level, unaffected by file location — verify with all-features build.)
+3. **capability/**: move 10 files (classify/diff/rows/schema/cache/version → cdc/live → auth → read last); keep duplicate `change_table`; capability/mod.rs; lib.rs repoints AuthConfig/ReadOperations/PreparedRead/HealthStatus; repoint composition.rs, unb.rs, http/*, src/tests/mod.rs imports; delete 10 files. Gate: stale-path grep empty + tests compile.
+4. **api/ + source/ (one step)**: create api/config (renames + 8 gate rules), api/runtime (PgPaw + SourceShutdown pub(crate) + composition tests with renames), api/builder (open → `crate::source::build_read_core`, `crate::binding::*` paths — binding lands P5, so builder's binding paths flip in P5; alternatively keep `crate::http`/`crate::unb` paths until P5); create source/{mod,replica,primary}; flip db temp imports (4.6); lib.rs repoints + renames; delete composition.rs. Gate: `git grep 'crate::composition\|Self::build_read_core'` empty; tests compile.
+5. **binding/**: move http/ 1:1 + unb.rs; binding/mod.rs; lib.rs `mod binding;`; flip api/builder.rs binding paths; delete src/http/, src/unb.rs. Gate: `git grep 'crate::http::\|crate::unb::'` empty. (R-new-2: `#[handler]` macro is signature-level, unaffected by file location — verify with all-features build.)
 6. **crate-root reconcile**: finalize lib.rs; **diff old vs new `pub use` symbol set** (identical except PgSource/EmbeddedPrimarySource renames + wire→protocol); main.rs renames. Gate: `cargo test --all-features` PASSES (first full test run incl. `--exact tests::shutdown_signal_helper`).
 7. **External consumers + README**: tests/primary.rs, integration-tests (2+1 sites), bench (1 site), README snippets + `target=` examples. Gate: `cargo test --workspace --all-features` passes; final grep for `pgpaw::wire|pgpaw::Source|::PrimarySource|pgpaw::http::|pgpaw::operations` returns nothing.
 8. **Verification**: full matrix + workspace tests + `cargo clippy --all-features -- -D warnings` + `cargo fmt --check` (R-new-4).

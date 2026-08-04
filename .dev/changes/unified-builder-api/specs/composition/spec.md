@@ -4,7 +4,7 @@
 
 ### Requirement: Single Composition Entry Point
 
-The system SHALL expose exactly one composition entry point, `PgPaw::builder()`, returning a `PgPawBuilder` that collects one source, cache config, auth config, an optional HTTP binding, and zero-or-more az-wire bindings, and whose `.open()` returns a `PgPaw` runtime handle.
+The system SHALL expose exactly one composition entry point, `PgPaw::builder()`, returning a `PgPawBuilder` that collects one source, cache config, auth config, an optional HTTP binding, and zero-or-more unb bindings, and whose `.open()` returns a `PgPaw` runtime handle.
 
 #### Scenario: Replica source with HTTP binding opens
 
@@ -49,18 +49,18 @@ The system SHALL support every binding over every source, including HTTP over an
 - WHEN a `PgPaw` opened with `Source::replica` and `HttpConfig` receives `GET /healthz`
 - THEN it responds with the replica watermark, or 503 when replication is halted, preserving existing halted/watermark semantics
 
-### Requirement: az-wire Passthrough Bindings
+### Requirement: unb Passthrough Bindings
 
-The system SHALL accept az-wire bindings as verbatim `az_wire::NodeBuilder` + `az_wire::TopologyConfig` pairs via repeatable `.az_wire(node, topology)` calls accumulating in order. PgPaw SHALL register its services (`read`, `cursor`, `live`) on each node and start each topology as given. PgPaw SHALL NOT define its own az-wire binding options.
+The system SHALL accept unb bindings as verbatim `unb::NodeBuilder` + `unb::TopologyConfig` pairs via repeatable `.unb(node, topology)` calls accumulating in order. PgPaw SHALL register its services (`read`, `cursor`, `live`) on each node and start each topology as given. PgPaw SHALL NOT define its own unb binding options.
 
-#### Scenario: Repeated az-wire bindings accumulate
+#### Scenario: Repeated unb bindings accumulate
 
-- WHEN `.az_wire(..)` is called twice before `.open()`
+- WHEN `.unb(..)` is called twice before `.open()`
 - THEN two topologies are started, each exposing the `read`, `cursor`, and `live` subjects over the same read core
 
 #### Scenario: Topology start failure rolls back
 
-- WHEN an az-wire topology fails to start during `.open()`
+- WHEN an unb topology fails to start during `.open()`
 - THEN already-started bindings and the read core are torn down and `.open()` returns `CacheError::lifecycle(LifecycleErrorKind::Topology, ..)`
 
 ### Requirement: Instance-Based Runtime
@@ -79,11 +79,11 @@ The system SHALL NOT hold PgPaw state in a process-global singleton. Multiple `P
 
 ### Requirement: Canonical Shutdown Ordering
 
-On `shutdown()`, the system SHALL stop bindings first (HTTP, then az-wire topologies in registration order), then source internals (replica: `replica.stop()` + CDC stop; primary: observer shutdown), then close the database last — for every source×binding combination. Shutdown errors SHALL map to `CacheError::lifecycle(LifecycleErrorKind::Shutdown, ..)`.
+On `shutdown()`, the system SHALL stop bindings first (HTTP, then unb topologies in registration order), then source internals (replica: `replica.stop()` + CDC stop; primary: observer shutdown), then close the database last — for every source×binding combination. Shutdown errors SHALL map to `CacheError::lifecycle(LifecycleErrorKind::Shutdown, ..)`.
 
 #### Scenario: Full-stack shutdown ordering
 
-- WHEN `shutdown()` is called on a primary-source instance with HTTP and az-wire bindings
+- WHEN `shutdown()` is called on a primary-source instance with HTTP and unb bindings
 - THEN HTTP stops, topologies shut down, the observer stops, the database closes, in that order, and the data directory is released
 
 ### Requirement: Wait Semantics
@@ -134,6 +134,6 @@ Reason: replaced by instance-owned state delivered to handlers via `web::Data`; 
 
 Reason: replaced by source/binding-independent `AuthConfig`; primary sources configure auth identically to replica sources.
 
-### Requirement: Public `register_az_wire`
+### Requirement: Public `register_unb`
 
-Reason: az-wire service registration becomes internal to the az-wire binding; consumers pass `NodeBuilder`+`TopologyConfig` to `.az_wire(..)` instead.
+Reason: unb service registration becomes internal to the unb binding; consumers pass `NodeBuilder`+`TopologyConfig` to `.unb(..)` instead.

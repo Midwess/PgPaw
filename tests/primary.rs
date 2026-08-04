@@ -1,19 +1,19 @@
 use pgpaw::{recover_primary, EmbeddedPrimarySource, LifecycleErrorKind, PgPaw, PgSource};
 use tokio_postgres::NoTls;
 
-#[cfg(feature = "az-wire")]
-use az_wire::{http, Node, ParentLink, SendExt, TopologyConfig};
-#[cfg(feature = "az-wire")]
+#[cfg(feature = "unb")]
+use unb::{http, Node, ParentLink, SendExt, TopologyConfig};
+#[cfg(feature = "unb")]
 use futures_util::StreamExt;
-#[cfg(feature = "az-wire")]
+#[cfg(feature = "unb")]
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
-#[cfg(feature = "az-wire")]
+#[cfg(feature = "unb")]
 use pgpaw::protocol::payload::LiveEvent;
-#[cfg(feature = "az-wire")]
+#[cfg(feature = "unb")]
 use pgpaw::protocol::subjects::{LIVE_SUBJECT, SQL_SUBJECT};
-#[cfg(feature = "az-wire")]
+#[cfg(feature = "unb")]
 use pgpaw::AuthConfig;
-#[cfg(feature = "az-wire")]
+#[cfg(feature = "unb")]
 use serde_json::json;
 
 fn ensure_runtime_dir() {
@@ -209,7 +209,7 @@ fn primary_recovery_rejects_unprovable_ownership_metadata() {
     assert!(path.exists());
 }
 
-#[cfg(all(feature = "az-wire", unix))]
+#[cfg(all(feature = "unb", unix))]
 #[tokio::test]
 #[serial_test::serial]
 async fn child_startup_failure_is_topology_and_rolls_back_the_primary() {
@@ -219,8 +219,8 @@ async fn child_startup_failure_is_topology_and_rolls_back_the_primary() {
         .source(PgSource::primary(EmbeddedPrimarySource::embedded(
             dir.path().join("primary"),
         )))
-        .az_wire(
-            az_wire::NodeBuilder::new("pgpaw").insecure_accept_declared_peer_identities(),
+        .unb(
+            unb::NodeBuilder::new("pgpaw").insecure_accept_declared_peer_identities(),
             TopologyConfig::parent(ParentLink::unix(
                 "worldant",
                 dir.path().join("missing.sock"),
@@ -242,7 +242,7 @@ async fn child_startup_failure_is_topology_and_rolls_back_the_primary() {
     reopened.shutdown().await.unwrap();
 }
 
-#[cfg(all(feature = "az-wire", unix))]
+#[cfg(all(feature = "unb", unix))]
 #[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
 async fn interrupted_wait_still_shuts_down_a_parent_linked_child() {
@@ -253,13 +253,13 @@ async fn interrupted_wait_still_shuts_down_a_parent_linked_child() {
         .insecure_accept_declared_peer_identities()
         .build()
         .unwrap();
-    let hosting = parent.host_unix(az_wire_transport::unix::UnixListener::bind(&socket).unwrap());
+    let hosting = parent.host_unix(unb_transport::unix::UnixListener::bind(&socket).unwrap());
     let mut pgpaw = PgPaw::builder()
         .source(PgSource::primary(EmbeddedPrimarySource::embedded(
             dir.path().join("primary"),
         )))
-        .az_wire(
-            az_wire::NodeBuilder::new("pgpaw").insecure_accept_declared_peer_identities(),
+        .unb(
+            unb::NodeBuilder::new("pgpaw").insecure_accept_declared_peer_identities(),
             TopologyConfig::parent(ParentLink::unix("worldant", &socket)),
         )
         .open()
@@ -274,7 +274,7 @@ async fn interrupted_wait_still_shuts_down_a_parent_linked_child() {
     hosting.shutdown().await.unwrap();
 }
 
-#[cfg(all(feature = "az-wire", unix))]
+#[cfg(all(feature = "unb", unix))]
 fn configured_primary(data_dir: std::path::PathBuf, port: u16) -> EmbeddedPrimarySource {
     EmbeddedPrimarySource {
         data_dir,
@@ -286,7 +286,7 @@ fn configured_primary(data_dir: std::path::PathBuf, port: u16) -> EmbeddedPrimar
     }
 }
 
-#[cfg(all(feature = "az-wire", unix))]
+#[cfg(all(feature = "unb", unix))]
 #[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
 async fn embedded_child_reads_configured_database_and_observes_external_commits() {
@@ -323,12 +323,12 @@ async fn embedded_child_reads_configured_database_and_observes_external_commits(
         .insecure_accept_declared_peer_identities()
         .build()
         .unwrap();
-    let hosting = parent.host_unix(az_wire_transport::unix::UnixListener::bind(&socket).unwrap());
+    let hosting = parent.host_unix(unb_transport::unix::UnixListener::bind(&socket).unwrap());
     let pgpaw = PgPaw::builder()
         .source(PgSource::primary(configured_primary(primary_dir, port)))
         .auth(AuthConfig::jwt_secret("embedded-secret"))
-        .az_wire(
-            az_wire::NodeBuilder::new("pgpaw").insecure_accept_declared_peer_identities(),
+        .unb(
+            unb::NodeBuilder::new("pgpaw").insecure_accept_declared_peer_identities(),
             TopologyConfig::parent(ParentLink::unix("worldant", &socket)),
         )
         .open()

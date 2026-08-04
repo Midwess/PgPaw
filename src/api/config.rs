@@ -127,8 +127,8 @@ pub struct HttpConfig {
     pub cors_origin: Option<String>,
 }
 
-#[cfg(feature = "az-wire")]
-pub struct AzWireConfig {
-    pub(crate) node: ::az_wire::NodeBuilder,
-    pub(crate) topology: ::az_wire::TopologyConfig,
+#[cfg(feature = "unb")]
+pub struct UnbConfig {
+    pub(crate) node: ::unb::NodeBuilder,
+    pub(crate) topology: ::unb::TopologyConfig,
 }

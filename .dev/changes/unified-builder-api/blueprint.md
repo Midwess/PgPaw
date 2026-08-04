@@ -5,21 +5,21 @@ Based on: `.dev/changes/unified-builder-api/analysis.md`
 
 ## Design Summary
 
-Replace the three divergent entrypoints (`run`/`run_until`, `open_primary`/`run_primary`/`attach_child`, `register_az_wire`) and the `Di` `OnceCell` singleton with a single instance-based composition API: `PgPaw::builder()` collects one `Source` (replica|primary), a `CacheConfig`, an `AuthConfig`, an optional `HttpConfig`, and zero-or-more `AzWireConfig`, then `.open()` builds one shared read core (via a single internal assembly branching once on `Source`) and starts every requested binding. HTTP handlers and `AuthOutcome` receive state through actix `web::Data` instead of the global. The runtime handle `PgPaw` owns the read core plus all started bindings and exposes `wait()`, `shutdown()`, `primary_dsn()`.
+Replace the three divergent entrypoints (`run`/`run_until`, `open_primary`/`run_primary`/`attach_child`, `register_unb`) and the `Di` `OnceCell` singleton with a single instance-based composition API: `PgPaw::builder()` collects one `Source` (replica|primary), a `CacheConfig`, an `AuthConfig`, an optional `HttpConfig`, and zero-or-more `UnbConfig`, then `.open()` builds one shared read core (via a single internal assembly branching once on `Source`) and starts every requested binding. HTTP handlers and `AuthOutcome` receive state through actix `web::Data` instead of the global. The runtime handle `PgPaw` owns the read core plus all started bindings and exposes `wait()`, `shutdown()`, `primary_dsn()`.
 
-az-wire API facts verified against source: `AzWireTopology::wait(&mut self)`, `shutdown(self)`; `NodeBuilder::build() -> Node`, `Node::start_topology(TopologyConfig) -> Result<AzWireTopology, WsError>`; `TopologyConfig { host: Option<HostConfig>, parent: Option<ParentLink> }`.
+unb API facts verified against source: `UnbTopology::wait(&mut self)`, `shutdown(self)`; `NodeBuilder::build() -> Node`, `Node::start_topology(TopologyConfig) -> Result<UnbTopology, WsError>`; `TopologyConfig { host: Option<HostConfig>, parent: Option<ParentLink> }`.
 
 ## Design Decisions
 
 | # | Decision | Chosen | Rationale |
 |---|----------|--------|-----------|
 | a | `healthz` over any source | `healthz` reads `web::Data<ReadOperations>` and calls new `ReadOperations::health() -> HealthStatus`. Replica source returns `{status, halt_reason, watermark}`; primary source (no `Replica`) returns `{status:"ok"}` unconditionally. | Least New Definitions: `ReadOperations` already holds `Option<Replica>` and is the read-core façade every binding calls. One small method + return struct beats a per-source handler branch. Halted/watermark semantics preserved verbatim for replica. |
-| b | Source-specific state in `PgPaw` runtime | `PgPaw` holds flat shared fields (`read: ReadOperations`, `db: PGlite`, `dsn: Option<String>`, `http: Option<Server>`, `az_wire: Vec<AzWireTopology>`) plus `SourceShutdown` enum owning only source-specific teardown handles (`Replica{replica, cdc}` vs `Primary{observer}`). | `SourceShutdown` is the single genuinely-new domain concept (source teardown differs and must be typed). No fake `Inner` struct; the enum carries behavior (per-source shutdown ordering). `dsn` is naturally `Option` (primary-only). |
-| c | Canonical shutdown ordering | Bindings first, then core: (1) HTTP `handle.stop(true)` + await server future; (2) each `AzWireTopology::shutdown()` in `Vec` order; (3) source teardown: replica → `replica.stop()` + `cdc.stop()`; primary → `observer.shutdown(&db)`; (4) `db.shutdown()`/`db.close()` last. | Correct for every source×binding combo incl. HTTP-on-primary. Standardizes error mapping on `CacheError::lifecycle(LifecycleErrorKind::Shutdown, _)` (the two old paths diverged on `Config` vs `lifecycle`). |
+| b | Source-specific state in `PgPaw` runtime | `PgPaw` holds flat shared fields (`read: ReadOperations`, `db: PGlite`, `dsn: Option<String>`, `http: Option<Server>`, `unb: Vec<UnbTopology>`) plus `SourceShutdown` enum owning only source-specific teardown handles (`Replica{replica, cdc}` vs `Primary{observer}`). | `SourceShutdown` is the single genuinely-new domain concept (source teardown differs and must be typed). No fake `Inner` struct; the enum carries behavior (per-source shutdown ordering). `dsn` is naturally `Option` (primary-only). |
+| c | Canonical shutdown ordering | Bindings first, then core: (1) HTTP `handle.stop(true)` + await server future; (2) each `UnbTopology::shutdown()` in `Vec` order; (3) source teardown: replica → `replica.stop()` + `cdc.stop()`; primary → `observer.shutdown(&db)`; (4) `db.shutdown()`/`db.close()` last. | Correct for every source×binding combo incl. HTTP-on-primary. Standardizes error mapping on `CacheError::lifecycle(LifecycleErrorKind::Shutdown, _)` (the two old paths diverged on `Config` vs `lifecycle`). |
 | d | `wait()` semantics | With ≥1 binding: `tokio::select!` biased over HTTP server future and each topology `.wait()`; first completion (fatal or clean) wins and triggers shutdown. With zero bindings (embedded primary, dsn-only): `wait()` awaits `std::future::pending()`. Signal handling stays in `main.rs`. | Matches `run_primary`'s current `pending()` semantics for dsn-only use and `run_until`'s select for bound servers; keeps signals out of the lib. |
 | e | `AuthConfig` shape | `AuthConfig { jwt_secret, jwt_public_key, jwt_jwks_url: Option<String>, role_claim: Option<String> }` with `AuthConfig::none()` (== Default), `::jwt_secret(s)`, `::jwt_public_key(pem)`, `::jwt_jwks_url(url)` constructors, chainable `.role_claim(r)`, `pub(crate) fn into_verifier() -> Result<Option<Verifier>, CacheError>` delegating to unchanged `Verifier::build`. | Source/binding-independent home for JWT (required since HTTP-on-primary is in scope and `EmbeddedVerifierConfig` is deleted). Validation stays in `Verifier::build`. |
-| f | Builder validation errors | At `.open()`: missing source → `CacheError::Config("PgPaw requires a source")`. `.http()`/`.az_wire()` without their feature are compile-gated (`#[cfg]`'d methods), never runtime errors. | Single fallible boundary keeps setters infallible and chainable, matching the dream API. |
-| g | Struct placement | New `src/composition.rs` hosts `PgPawBuilder`, `PgPaw`, `Source`/`ReplicaSource`/`PrimarySource`, `UpstreamConfig` (relocated field-block), `CacheConfig`, `HttpConfig`, `AzWireConfig`, `SourceShutdown`, `build_read_core`. `AuthConfig` lives in `src/auth.rs` (adjacent to `Verifier`). `HealthStatus` + `health()` on `ReadOperations` in `operations.rs`. `src/di.rs` deleted. | One new file for the genuinely-new composition domain; net +1 domain file, −1 singleton file. Auth config attaches to the module it configures; health attaches to the façade it queries. |
+| f | Builder validation errors | At `.open()`: missing source → `CacheError::Config("PgPaw requires a source")`. `.http()`/`.unb()` without their feature are compile-gated (`#[cfg]`'d methods), never runtime errors. | Single fallible boundary keeps setters infallible and chainable, matching the dream API. |
+| g | Struct placement | New `src/composition.rs` hosts `PgPawBuilder`, `PgPaw`, `Source`/`ReplicaSource`/`PrimarySource`, `UpstreamConfig` (relocated field-block), `CacheConfig`, `HttpConfig`, `UnbConfig`, `SourceShutdown`, `build_read_core`. `AuthConfig` lives in `src/auth.rs` (adjacent to `Verifier`). `HealthStatus` + `health()` on `ReadOperations` in `operations.rs`. `src/di.rs` deleted. | One new file for the genuinely-new composition domain; net +1 domain file, −1 singleton file. Auth config attaches to the module it configures; health attaches to the façade it queries. |
 
 ## Component Designs
 
@@ -32,8 +32,8 @@ pub struct PgPawBuilder {
     auth: AuthConfig,
     #[cfg(feature = "server")]
     http: Option<HttpConfig>,
-    #[cfg(feature = "az-wire")]
-    az_wire: Vec<AzWireConfig>,
+    #[cfg(feature = "unb")]
+    unb: Vec<UnbConfig>,
 }
 
 impl PgPawBuilder {
@@ -42,13 +42,13 @@ impl PgPawBuilder {
     pub fn auth(self, auth: AuthConfig) -> Self;
     #[cfg(feature = "server")]
     pub fn http(self, http: HttpConfig) -> Self;
-    #[cfg(feature = "az-wire")]
-    pub fn az_wire(self, node: az_wire::NodeBuilder, topology: az_wire::TopologyConfig) -> Self;
+    #[cfg(feature = "unb")]
+    pub fn unb(self, node: unb::NodeBuilder, topology: unb::TopologyConfig) -> Self;
     pub async fn open(self) -> Result<PgPaw, CacheError>;
 }
 ```
 
-`open()` flow: validate `source.is_some()` → `build_read_core` → wrap `ReadOperations` in `web::Data` → start HTTP binding (if `http`) → start each az-wire topology → assemble `PgPaw`. On any start failure, tear down already-started bindings + read core before returning `Err` (mirrors current `run_until` rollback).
+`open()` flow: validate `source.is_some()` → `build_read_core` → wrap `ReadOperations` in `web::Data` → start HTTP binding (if `http`) → start each unb topology → assemble `PgPaw`. On any start failure, tear down already-started bindings + read core before returning `Err` (mirrors current `run_until` rollback).
 
 ### `PgPaw` runtime handle (src/composition.rs)
 
@@ -60,8 +60,8 @@ pub struct PgPaw {
     shutdown_state: SourceShutdown,
     #[cfg(feature = "server")]
     http: Option<actix_web::dev::Server>,
-    #[cfg(feature = "az-wire")]
-    az_wire: Vec<az_wire::AzWireTopology>,
+    #[cfg(feature = "unb")]
+    unb: Vec<unb::UnbTopology>,
 }
 
 impl PgPaw {
@@ -77,7 +77,7 @@ enum SourceShutdown {
 }
 ```
 
-`wait(&mut self)` because `AzWireTopology::wait(&mut self)` and the actix `Server` future poll by `&mut`; callers bind `let mut pgpaw`. `shutdown(self)` consumes because `AzWireTopology::shutdown(self)` and `db.close()` consume.
+`wait(&mut self)` because `UnbTopology::wait(&mut self)` and the actix `Server` future poll by `&mut`; callers bind `let mut pgpaw`. `shutdown(self)` consumes because `UnbTopology::shutdown(self)` and `db.close()` consume.
 
 ### `Source` / `ReplicaSource` / `PrimarySource` (src/composition.rs)
 
@@ -114,7 +114,7 @@ impl PrimarySource {
 
 `UpstreamConfig` keeps the transport/auth block (host/port/user/password/database/sslmode, sslmode defaulted `"disable"`); `publication`/`slot`/`max_connections` hoist to `ReplicaSource` per the dream API. `setup.rs` `preflight`/`prepare` keep taking `&UpstreamConfig` with publication/slot passed alongside or via `&ReplicaSource`.
 
-### `CacheConfig` / `HttpConfig` / `AzWireConfig` (src/composition.rs)
+### `CacheConfig` / `HttpConfig` / `UnbConfig` (src/composition.rs)
 
 ```rust
 pub struct CacheConfig { pub max_bytes: u64 }
@@ -126,14 +126,14 @@ pub struct HttpConfig {
     pub cors_origin: Option<String>,
 }
 
-#[cfg(feature = "az-wire")]
-pub struct AzWireConfig {
-    node: az_wire::NodeBuilder,
-    topology: az_wire::TopologyConfig,
+#[cfg(feature = "unb")]
+pub struct UnbConfig {
+    node: unb::NodeBuilder,
+    topology: unb::TopologyConfig,
 }
 ```
 
-`HttpConfig.addr` is a `SocketAddr` (dream API `.parse()?`), replacing `bind_addr: String`. `AzWireConfig` passed through verbatim; PgPaw only calls `register_az_wire(node, read.clone()).build()?.start_topology(topology)`.
+`HttpConfig.addr` is a `SocketAddr` (dream API `.parse()?`), replacing `bind_addr: String`. `UnbConfig` passed through verbatim; PgPaw only calls `register_unb(node, read.clone()).build()?.start_topology(topology)`.
 
 ### `AuthConfig` (src/auth.rs)
 
@@ -167,11 +167,11 @@ async fn build_read_core(
 
 Branches once on `Source`:
 - **Replica arm** (from `Di::init`): `setup::preflight` → `PGlite::open_multi_process` → `Replica::start` → `scan_schema` → `VersionIndex::new` → `CdcBridge::start(&replica, versions)` → `LiveHub::start` → `QueryCache::new(cache.max_bytes)` → `auth.into_verifier()` → `ReadOperations::new(...)`. Returns `dsn = None`, `SourceShutdown::Replica{replica, cdc}`.
-- **Primary arm** (from `attach_child` minus az-wire, plus `open_primary` body): open embedded primary via internal `open_primary_db(&PrimarySource) -> (PGlite, String)` → `scan_schema` → `VersionIndex::new` → `CdcBridge::primary(versions)` → `LiveHub::start` → `auth.into_verifier()` → `ReadOperations::primary(...)` → `PrimaryObserver::start(...)`. Returns `dsn = Some(dsn)`, `SourceShutdown::Primary{observer: Some(observer)}`.
+- **Primary arm** (from `attach_child` minus unb, plus `open_primary` body): open embedded primary via internal `open_primary_db(&PrimarySource) -> (PGlite, String)` → `scan_schema` → `VersionIndex::new` → `CdcBridge::primary(versions)` → `LiveHub::start` → `auth.into_verifier()` → `ReadOperations::primary(...)` → `PrimaryObserver::start(...)`. Returns `dsn = Some(dsn)`, `SourceShutdown::Primary{observer: Some(observer)}`.
 
 Bindings consume the returned `ReadOperations` uniformly — branch once, assemble uniformly, reusing the existing dual constructors.
 
-Feature re-gating required: `PrimaryObserver` and `CdcBridge::primary`/`publish` are currently `#[cfg(feature = "az-wire")]`; HTTP-on-primary needs them under `#[cfg(feature = "read")]`.
+Feature re-gating required: `PrimaryObserver` and `CdcBridge::primary`/`publish` are currently `#[cfg(feature = "unb")]`; HTTP-on-primary needs them under `#[cfg(feature = "read")]`.
 
 ### `ReadOperations::health` (src/operations.rs)
 
@@ -200,15 +200,15 @@ Replica: `{halted, reason, Some(watermark)}`; primary (no replica): `{false, Non
 
 | File | Modifications | Complexity | Phase |
 |------|---------------|------------|-------|
-| `src/lib.rs` | Add `mod composition;` + `pub use composition::{PgPaw, PgPawBuilder, Source, ReplicaSource, PrimarySource, UpstreamConfig, CacheConfig, HttpConfig, AzWireConfig}` + `pub use auth::AuthConfig`; later delete `run`/`run_until`, old re-exports; keep `recover_primary`, `open_shadow`/`ShadowHandle`, `CacheError`/`LifecycleErrorKind`, `PreparedRead`/`ReadOperations`, `init` | High | 1,6,7 |
+| `src/lib.rs` | Add `mod composition;` + `pub use composition::{PgPaw, PgPawBuilder, Source, ReplicaSource, PrimarySource, UpstreamConfig, CacheConfig, HttpConfig, UnbConfig}` + `pub use auth::AuthConfig`; later delete `run`/`run_until`, old re-exports; keep `recover_primary`, `open_shadow`/`ShadowHandle`, `CacheError`/`LifecycleErrorKind`, `PreparedRead`/`ReadOperations`, `init` | High | 1,6,7 |
 | `src/auth.rs` | Add `AuthConfig`; `AuthOutcome::from_request` reads `req.app_data::<web::Data<ReadOperations>>()` instead of `Di::instance()` | Medium | 1,4 |
 | `src/operations.rs` | Add `HealthStatus` + `ReadOperations::health()` | Low | 2 |
 | `src/http/server.rs` | `bind()` → `bind_at(addr, cors_origin, data: web::Data<ReadOperations>)` registering `.app_data(data.clone())`; drop `Di` | Medium | 4 |
 | `src/http/query.rs` | Handlers take `web::Data<ReadOperations>`; drop `&'static` lifetimes in `live_query`/`private_response`; drop `Di` | Medium | 4 |
 | `src/http/health.rs` | `healthz(data)` calls `data.health()`; drop `Di` | Low | 4 |
 | `src/primary.rs` | Delete `PrimaryConfig`/`EmbeddedVerifierConfig`/`PrimaryHandle`/`open_primary`/`run_primary`/`finish_primary`; keep `recover_primary` + recovery helpers; re-gate `PrimaryObserver` to `read`; add internal `open_primary_db(&PrimarySource)` | High | 2,7 |
-| `src/cdc.rs` | Re-gate `CdcBridge::primary`/`publish` from `az-wire` to `read` | Low | 2 |
-| `src/az_wire.rs` | `register_az_wire` → `pub(crate)`; rewrite inline tests using old primary API | Medium | 5,8 |
+| `src/cdc.rs` | Re-gate `CdcBridge::primary`/`publish` from `unb` to `read` | Low | 2 |
+| `src/unb.rs` | `register_unb` → `pub(crate)`; rewrite inline tests using old primary API | Medium | 5,8 |
 | `src/setup.rs` | Adapt `UpstreamConfig` import to new home; publication/slot from `ReplicaSource` | Low | 2 |
 | `src/main.rs` | Rewrite option `.config()` glue → builder mapping; `run_cli` opens builder then races `wait()` against `shutdown_signal` (moved here); `init` unchanged; update clap tests | High | 6 |
 | `src/tests/mod.rs` | Verify compiles after moves (pure unit tests) | Low | 8 |
@@ -226,19 +226,19 @@ Replica: `{halted, reason, Some(watermark)}`; primary (no replica): `{false, Non
 | `tests/primary.rs` | Rewrite primary/child tests against builder; `recover_primary` tests unchanged | High |
 | `integration-tests/src/lib.rs` | `pgpaw::run(ServerConfig)` at 3 sites (122, 302, 327) — rewrite `Server::launch` harness to builder | High |
 | `bench/src/main.rs` | `pgpaw::run(ServerConfig)` (lines 244/269) — rewrite `spawn_pgpaw` to builder | Medium |
-| `tests/topology_benchmark.rs` | Raw `az_wire::Node`, unaffected — confirm no old-API import | Low |
+| `tests/topology_benchmark.rs` | Raw `unb::Node`, unaffected — confirm no old-API import | Low |
 | `integration-tests/tests/*.rs` | Consume the harness, green once `lib.rs` harness migrates | Low |
 
 ## Implementation Phases (each phase compiles + tests green)
 
-1. **Introduce new config types** — `composition.rs` skeleton, `CacheConfig`/`HttpConfig`/`AzWireConfig`/`Source`/`ReplicaSource`/`PrimarySource`/`UpstreamConfig` + `AuthConfig` in `auth.rs`; old types untouched.
+1. **Introduce new config types** — `composition.rs` skeleton, `CacheConfig`/`HttpConfig`/`UnbConfig`/`Source`/`ReplicaSource`/`PrimarySource`/`UpstreamConfig` + `AuthConfig` in `auth.rs`; old types untouched.
 2. **Unified read-core assembly** — re-gate `CdcBridge::primary`/`PrimaryObserver` to `read`; extract `open_primary_db`; implement `build_read_core` + `SourceShutdown`; add `ReadOperations::health()`.
 3. **Runtime handle (bindingless)** — `PgPaw`, `builder()`, `open()` zero-binding case, `primary_dsn()`, `shutdown()`, `wait()` = pending.
 4. **HTTP binding via web::Data** — migrate `AuthOutcome` + all handlers + `bind_at`; `open()` starts HTTP; prove HTTP-over-primary with `/healthz` 200 test.
-5. **az-wire binding** — `register_az_wire` private; `open()` starts each topology with rollback; `wait()` selects over all bindings.
+5. **unb binding** — `register_unb` private; `open()` starts each topology with rollback; `wait()` selects over all bindings.
 6. **CLI remap** — `shutdown_signal` to `main.rs`; `serve`/`primary` map flags to builder; `init` unchanged; clap tests updated.
-7. **Hard-cut delete** — remove `di.rs`, `run`/`run_until`, old primary API, orphaned imports; feature-matrix build green (`read`, `server`, `az-wire`, no-default).
-8. **Test migration** — rewrite `tests/primary.rs`, `integration-tests/src/lib.rs`, `bench/src/main.rs`, `az_wire.rs` inline tests; add shutdown-ordering tests per source×binding combo.
+7. **Hard-cut delete** — remove `di.rs`, `run`/`run_until`, old primary API, orphaned imports; feature-matrix build green (`read`, `server`, `unb`, no-default).
+8. **Test migration** — rewrite `tests/primary.rs`, `integration-tests/src/lib.rs`, `bench/src/main.rs`, `unb.rs` inline tests; add shutdown-ordering tests per source×binding combo.
 
 ## Risks and Mitigations
 
@@ -257,7 +257,7 @@ Replica: `{halted, reason, Some(watermark)}`; primary (no replica): `{false, Non
 
 - `wait(&mut self)` vs dream's immutable-looking `pgpaw.wait()` → accept `&mut`, callers bind `let mut`.
 - `sslmode` placement → defaulted field on `UpstreamConfig` (preserves `setup.rs`).
-- `shutdown_signal` home → moves to `main.rs`; the `az_wire.rs` `sigterm_completes_the_production_signal_wait` test moves with it.
+- `shutdown_signal` home → moves to `main.rs`; the `unb.rs` `sigterm_completes_the_production_signal_wait` test moves with it.
 
 ## Confidence Assessment
 

@@ -13,7 +13,7 @@ Note on repo state: the working tree has substantial uncommitted changes from th
 - `#[cfg(all(test, feature = "server"))] mod tests;` stays; `src/tests/mod.rs` content unchanged except 4 import lines (`crate::classify::` → `crate::capability::classify::` etc.).
 - Flat re-exports (all preserved at crate root, sources updated):
   - `AuthConfig` ← `capability::auth` (see Ambiguity #1)
-  - `AzWireConfig`, `HttpConfig`, `UpstreamConfig`, `CacheConfig`, `ReplicaSource`, `EmbeddedPrimarySource` (renamed), `PgSource` (renamed) ← `api::config`
+  - `UnbConfig`, `HttpConfig`, `UpstreamConfig`, `CacheConfig`, `ReplicaSource`, `EmbeddedPrimarySource` (renamed), `PgSource` (renamed) ← `api::config`
   - `PgPaw` ← `api::runtime`; `PgPawBuilder` ← `api::builder`
   - `CacheError`, `LifecycleErrorKind` ← `error` (unchanged)
   - `HealthStatus`, `PreparedRead`, `ReadOperations` ← `capability::read`
@@ -31,8 +31,8 @@ Note on repo state: the working tree has substantial uncommitted changes from th
 | `enum Source` + `fn replica`/`fn primary` | `api/config.rs`, **renamed `PgSource`** | variant names `Replica`/`Primary` unchanged |
 | `CacheConfig` + `Default` | `api/config.rs` | |
 | `HttpConfig` | `api/config.rs` | server-gated |
-| `AzWireConfig` (private fields) | `api/config.rs` | az-wire-gated |
-| `PgPawBuilder` struct + setter methods + `open()` | `api/builder.rs` | `open()` calls `crate::source::build_read_core`, `crate::binding::http::server::bind_at`, `crate::binding::az_wire::register_az_wire` |
+| `UnbConfig` (private fields) | `api/config.rs` | unb-gated |
+| `PgPawBuilder` struct + setter methods + `open()` | `api/builder.rs` | `open()` calls `crate::source::build_read_core`, `crate::binding::http::server::bind_at`, `crate::binding::unb::register_unb` |
 | `build_read_core` dispatcher | `source/mod.rs` as `pub(crate) async fn build_read_core(source, cache, auth)` free fn (Ambiguity #4 — provisional) | dispatches once on `PgSource` |
 | `build_replica_core` body | `source/replica.rs` (`#[cfg(feature = "server")]`, `pub(crate)` fn) | logs preserved byte-identical |
 | `build_primary_core` body | `source/primary.rs` (ungated, `pub(crate)` fn) | |
@@ -65,13 +65,13 @@ Whole-file moves. setup.rs `use crate::composition::UpstreamConfig` → `crate::
 
 Unambiguous split — no item straddles. **Risk R1**: `pub mod wire` is today a public submodule path (`pgpaw::wire::{..}`, used by `tests/primary.rs:11`). Target tree replaces it with `pgpaw::protocol::{payload, subjects}` — intentional public rename, in-scope; update the one first-party import (no compat shim).
 
-### `src/az_wire.rs` → `binding/az_wire.rs` (whole file)
+### `src/unb.rs` → `binding/unb.rs` (whole file)
 
-`register_az_wire` (pub(crate)), 3 `#[handler]` fns, private helpers (`parse_rows`, `decode_event`, `string`, `number`, `handler_error`), test mod. Imports: `crate::operations::ReadOperations` → `crate::capability::read::ReadOperations`; `crate::wire::{..}` → `crate::protocol::{payload::.., subjects::..}`.
+`register_unb` (pub(crate)), 3 `#[handler]` fns, private helpers (`parse_rows`, `decode_event`, `string`, `number`, `handler_error`), test mod. Imports: `crate::operations::ReadOperations` → `crate::capability::read::ReadOperations`; `crate::wire::{..}` → `crate::protocol::{payload::.., subjects::..}`.
 
 ### `src/http/{mod,server,query,health}.rs` → `binding/http/{mod,server,query,health}.rs` (1:1)
 
-Sibling relationship preserved — `super::health`/`super::query` route refs in `server.rs` stay valid unchanged. `error_response`/`error_status` used only within `query.rs` (az-wire has its own parallel `handler_error`) — stay local. Imports update to `crate::capability::{read, auth, classify}`.
+Sibling relationship preserved — `super::health`/`super::query` route refs in `server.rs` stay valid unchanged. `error_response`/`error_status` used only within `query.rs` (unb has its own parallel `handler_error`) — stay local. Imports update to `crate::capability::{read, auth, classify}`.
 
 ### `src/error.rs` → stays (crate root). `src/main.rs` → stays (bin crate root, CLI adapter)
 
@@ -84,7 +84,7 @@ main.rs edits are rename-only: import list (`PrimarySource`→`EmbeddedPrimarySo
 | `mod api;` (lib.rs) | `#[cfg(feature = "read")]` — but item-level gates inside per table below |
 | `mod source;` | `#[cfg(feature = "read")]`; inside `source/mod.rs`: `#[cfg(feature = "server")] mod replica;` (whole file server-gated), `mod primary;` ungated |
 | `mod capability;` | `#[cfg(feature = "read")]`; inside: each `mod X;` line individually gated to match the current explicit per-item style (all read; fine since parent gated — keep individual gates for style parity) |
-| `mod binding;` | ungated file; inside: `#[cfg(feature = "server")] mod http;`, `#[cfg(feature = "az-wire")] mod az_wire;` |
+| `mod binding;` | ungated file; inside: `#[cfg(feature = "server")] mod http;`, `#[cfg(feature = "unb")] mod unb;` |
 | `mod db;` | ungated; inside: `mod primary;` ungated, `mod shadow;` ungated, `#[cfg(feature = "server")] mod setup;` |
 | `mod protocol;` | `#[cfg(feature = "read")]` (matches current `pub mod wire` gate); `pub mod payload; pub mod subjects;` inside |
 | `mod error;` | ungated (unchanged) |
@@ -95,11 +95,11 @@ main.rs edits are rename-only: import list (`PrimarySource`→`EmbeddedPrimarySo
 |---|---|
 | `UpstreamConfig`, `ReplicaSource`, `HttpConfig`, `PgSource::Replica` variant, `PgSource::replica()` | `#[cfg(feature = "server")]` |
 | `EmbeddedPrimarySource`, `PgSource::Primary` variant, `PgSource::primary()`, `CacheConfig`, `build_primary_core` | ungated |
-| `AzWireConfig`, `PgPawBuilder::az_wire`, `PgPaw.az_wire` field | `#[cfg(feature = "az-wire")]` |
+| `UnbConfig`, `PgPawBuilder::unb`, `PgPaw.unb` field | `#[cfg(feature = "unb")]` |
 | `PgPawBuilder.http` field, `::http` method, open()'s http block, `PgPaw.http_handle`/`http_task`, `SourceShutdown::Replica` variant, shutdown()'s Replica arm | `#[cfg(feature = "server")]` |
 | `build_read_core`'s `Replica` match arm | `#[cfg(feature = "server")]` on the arm |
-| `abort_open` | `#[cfg(any(feature = "server", feature = "az-wire"))]` |
-| `open()`'s `let mut pgpaw` + `shutdown(mut self)` | `#[cfg_attr(not(any(feature = "server", feature = "az-wire")), allow(unused_mut))]` |
+| `abort_open` | `#[cfg(any(feature = "server", feature = "unb"))]` |
+| `open()`'s `let mut pgpaw` + `shutdown(mut self)` | `#[cfg_attr(not(any(feature = "server", feature = "unb")), allow(unused_mut))]` |
 | composition http tests (`http_get`, both http tests) | `#[cfg(feature = "server")]` |
 
 ### operations.rs → capability/read.rs (second-densest)
@@ -115,8 +115,8 @@ Ungated: `recover_primary`, `recover_primary_inner` (both), `process_is_alive`, 
 All cross-file calls use `pub(crate)` items (crate-wide — moves mechanically safe). No bare-private fn is called cross-file. `super::` relative refs only in `http/server.rs` routes — preserved by the 1:1 `binding/http/` move.
 
 Path rewrites (complete list): see per-file notes in §1 plus:
-- `composition` → uses of `crate::{schema, setup, primary, http, az_wire, auth, cache, cdc, live, operations, version}` → `crate::{capability::schema, db::setup, db::primary, binding::http, binding::az_wire, capability::auth, capability::cache, capability::cdc, capability::live, capability::read, capability::version}`
-- `operations`/`live`/`http/*`/`az_wire` internal `use crate::X` → `crate::capability::X` / `crate::protocol::X` (keep absolute `crate::` paths, not `super::`, for mechanical consistency)
+- `composition` → uses of `crate::{schema, setup, primary, http, unb, auth, cache, cdc, live, operations, version}` → `crate::{capability::schema, db::setup, db::primary, binding::http, binding::unb, capability::auth, capability::cache, capability::cdc, capability::live, capability::read, capability::version}`
+- `operations`/`live`/`http/*`/`unb` internal `use crate::X` → `crate::capability::X` / `crate::protocol::X` (keep absolute `crate::` paths, not `super::`, for mechanical consistency)
 - `http/query.rs` (+ its tests): `crate::operations::map_db_denial` → `crate::capability::read::map_db_denial`
 
 Post-reshape dependency direction:
@@ -136,9 +136,9 @@ error      → (leaf)
 | File | Edits |
 |---|---|
 | `tests/primary.rs` | line 1 import renames; line 11 `pgpaw::wire::{..}` → `pgpaw::protocol::{payload::LiveEvent, subjects::{LIVE_SUBJECT, READ_SUBJECT}}`; 11 token sites `Source::primary`/`PrimarySource` → renamed (lines 36, 80, 112, 118, 213, 230, 252, 272-273, 294, 317) |
-| `tests/topology_benchmark.rs` | none (raw az_wire + subject string literal only) |
+| `tests/topology_benchmark.rs` | none (raw unb + subject string literal only) |
 | `integration-tests/src/lib.rs` | lines 145, 311: `pgpaw::Source::replica` → `pgpaw::PgSource::replica` (only 2 sites) |
-| `integration-tests/tests/az_wire_replica.rs` | line 28: same rename (1 site) |
+| `integration-tests/tests/unb_replica.rs` | line 28: same rename (1 site) |
 | other `integration-tests/tests/*.rs` | none (harness-only consumers) |
 | `bench/src/main.rs` | line 261: same rename (1 site) |
 | `src/main.rs` | import list + 2 call sites (§1) |
@@ -162,7 +162,7 @@ Conventions: logfmt `event=` names byte-identical (pure moves preserve automatic
 | R1: `pgpaw::wire` public path replaced by `pgpaw::protocol::{payload,subjects}` | breaks `tests/primary.rs:11` | intentional in-scope rename; update the one first-party import; no compat shim |
 | R2: `db → capability::cdc` edge | layering surprise only | pre-existing; accepted; do not invert |
 | R3: log `target=` values change with `module_path!()` (e.g. `pgpaw::operations` → `pgpaw::capability::read`) | downstream log parsing keyed on `target=` breaks silently; `event=` unaffected | unavoidable in a module move; do NOT add explicit `target:` params (scope creep); update README log examples; note in change docs |
-| R4: cfg-gate omission during composition.rs / operations.rs splits | silent behavior change or combo compile failure | build all 4 feature combos after every phase (`--no-default-features --features read`, default `server`, `az-wire`, `--all-features`) — precedent: commit b3f3038 |
+| R4: cfg-gate omission during composition.rs / operations.rs splits | silent behavior change or combo compile failure | build all 4 feature combos after every phase (`--no-default-features --features read`, default `server`, `unb`, `--all-features`) — precedent: commit b3f3038 |
 | R5: missed flat re-export | hard compile failure downstream | diff old vs new `pub use` list before completion |
 | R6: `main.rs` `--exact tests::shutdown_signal_helper` | none — main.rs untouched | confirmed safe |
 | R7: AuthConfig / PrimaryObserver placement ambiguity | churn if re-decided later | resolved: `capability/auth.rs` and `db/primary.rs` (§1) — treat as authoritative |
@@ -178,7 +178,7 @@ Conventions: logfmt `event=` names byte-identical (pure moves preserve automatic
 
 ## Recommended phase ordering
 
-1. `protocol/` (leaf) → 2. `db/` (shadow, setup, primary — primary after capability/cdc exists if strict, but pub(crate) is crate-wide so order is compile-safe either way) → 3. `capability/` (classify, diff, cache, version, rows, schema → cdc → auth → live → read last) → 4. `api/` (config + builder + runtime in one phase to avoid half-renamed states) → 5. `source/` (replica, primary, mod dispatcher) → 6. `binding/` (http 1:1, az_wire) → 7. crate-root `lib.rs` re-export wiring + `init()` → 8. `src/tests/mod.rs` imports → 9. external consumers + README. Build the 4-combo feature matrix after each phase.
+1. `protocol/` (leaf) → 2. `db/` (shadow, setup, primary — primary after capability/cdc exists if strict, but pub(crate) is crate-wide so order is compile-safe either way) → 3. `capability/` (classify, diff, cache, version, rows, schema → cdc → auth → live → read last) → 4. `api/` (config + builder + runtime in one phase to avoid half-renamed states) → 5. `source/` (replica, primary, mod dispatcher) → 6. `binding/` (http 1:1, unb) → 7. crate-root `lib.rs` re-export wiring + `init()` → 8. `src/tests/mod.rs` imports → 9. external consumers + README. Build the 4-combo feature matrix after each phase.
 
 ## Confidence Assessment
 

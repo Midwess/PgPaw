@@ -10,13 +10,13 @@ Pure structural change: dissolve `composition.rs` and re-home every `src/` file 
 CLI (main.rs)
   └─ pgpaw:: flat re-exports (lib.rs)
        api/        config.rs (PgSource, EmbeddedPrimarySource, ReplicaSource, UpstreamConfig,
-                    CacheConfig, HttpConfig, AzWireConfig)
+                    CacheConfig, HttpConfig, UnbConfig)
                    builder.rs (PgPawBuilder → open)
                    runtime.rs (PgPaw, SourceShutdown, wait/shutdown/abort_open + lifecycle tests)
        source/     mod.rs (build_read_core dispatcher) · replica.rs · primary.rs
        capability/ read.rs (ex operations.rs) · auth · cache · live · cdc · version ·
                    schema · rows · classify · diff
-       binding/    http/{server,query,health} · az_wire.rs
+       binding/    http/{server,query,health} · unb.rs
        db/         primary.rs (open/recovery/PrimaryObserver) · shadow.rs · setup.rs
        protocol/   payload.rs · subjects.rs   (public: pgpaw::protocol::*)
        error.rs    (unchanged, crate root)
@@ -65,4 +65,4 @@ Completion gate: diff of the old vs new `pub use` symbol set must show exactly t
 
 ## Data Model / Security Considerations
 
-None. No struct gains/loses fields; no semantics change. Auth/RLS, cache, replication, CDC, HTTP status mapping, az-wire error mapping all byte-identical — enforced by the "no body edits" rule and the full pre-existing test suite passing unmodified (beyond path/rename updates).
+None. No struct gains/loses fields; no semantics change. Auth/RLS, cache, replication, CDC, HTTP status mapping, unb error mapping all byte-identical — enforced by the "no body edits" rule and the full pre-existing test suite passing unmodified (beyond path/rename updates).

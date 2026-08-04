@@ -1,4 +1,4 @@
-#![cfg(feature = "az-wire")]
+#![cfg(feature = "unb")]
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
 use std::path::PathBuf;
@@ -13,7 +13,7 @@ fn free_address() -> SocketAddr {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn replica_with_az_wire_host_binds_serves_and_releases() {
+async fn replica_with_unb_host_binds_serves_and_releases() {
     let up = Upstream::start().await;
     up.run_sql("CREATE TABLE items (id int PRIMARY KEY); INSERT INTO items VALUES (1)")
         .await;
@@ -21,7 +21,7 @@ async fn replica_with_az_wire_host_binds_serves_and_releases() {
         .await;
     let data = tempfile::tempdir().expect("tempdir");
     let address = free_address();
-    let host = az_wire::HostConfig::tcp(address, az_wire::TcpTransport::plain());
+    let host = unb::HostConfig::tcp(address, unb::TcpTransport::plain());
 
     let pgpaw = pgpaw::PgPaw::builder()
         .source(pgpaw::PgSource::replica(pgpaw::ReplicaSource {
@@ -38,20 +38,20 @@ async fn replica_with_az_wire_host_binds_serves_and_releases() {
             slot: "pgpaw_slot".to_string(),
             max_connections: 8,
         }))
-        .az_wire(
-            az_wire::NodeBuilder::new("pgpaw").insecure_accept_declared_peer_identities(),
-            az_wire::TopologyConfig::host(host),
+        .unb(
+            unb::NodeBuilder::new("pgpaw").insecure_accept_declared_peer_identities(),
+            unb::TopologyConfig::host(host),
         )
         .open()
         .await
-        .expect("open replica with az-wire host binding");
+        .expect("open replica with unb host binding");
 
     assert!(
         TcpListener::bind(address).is_err(),
-        "az-wire host must hold its listener while running"
+        "unb host must hold its listener while running"
     );
 
     pgpaw.shutdown().await.expect("shutdown");
 
-    TcpListener::bind(address).expect("az-wire listener must be released after shutdown");
+    TcpListener::bind(address).expect("unb listener must be released after shutdown");
 }

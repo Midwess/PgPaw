@@ -1,9 +1,9 @@
-#![cfg(all(feature = "az-wire", unix))]
+#![cfg(all(feature = "unb", unix))]
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use az_wire::{
+use unb::{
     handler, http, Handler, HandlerError, Node, ParentLink, Reply, Request, SendExt, TopologyConfig,
 };
 use futures_util::future::try_join_all;
@@ -44,13 +44,13 @@ async fn native_topologies_have_no_gross_adapter_regression() {
     let direct_result = measure(&direct).await;
 
     let public_service = service("public-service");
-    let hosting = az_wire::HostConfig::tcp(([127, 0, 0, 1], 0), az_wire::TcpTransport::plain())
+    let hosting = unb::HostConfig::tcp(([127, 0, 0, 1], 0), unb::TcpTransport::plain())
         .start(&public_service)
         .await
         .unwrap();
     let public = caller("public-caller");
     let transport =
-        az_wire_client::dial_transport(&format!("ws://{}", hosting.websocket_addr().unwrap()))
+        unb_client::dial_transport(&format!("ws://{}", hosting.websocket_addr().unwrap()))
             .await
             .unwrap();
     public
@@ -63,7 +63,7 @@ async fn native_topologies_have_no_gross_adapter_regression() {
     let path = dir.path().join("parent.sock");
     let unix_service = service("unix-service");
     let unix_hosting =
-        unix_service.host_unix(az_wire_transport::unix::UnixListener::bind(&path).unwrap());
+        unix_service.host_unix(unb_transport::unix::UnixListener::bind(&path).unwrap());
     let unix = caller("unix-caller");
     let topology = unix
         .start_topology(TopologyConfig::parent(ParentLink::unix(

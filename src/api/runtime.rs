@@ -28,8 +28,8 @@ pub struct PgPaw {
     pub(crate) http_handle: Option<actix_web::dev::ServerHandle>,
     #[cfg(feature = "server")]
     pub(crate) http_task: Option<tokio::task::JoinHandle<std::io::Result<()>>>,
-    #[cfg(feature = "az-wire")]
-    pub(crate) az_wire: Vec<::az_wire::AzWireTopology>,
+    #[cfg(feature = "unb")]
+    pub(crate) unb: Vec<::unb::UnbTopology>,
 }
 
 impl std::fmt::Debug for PgPaw {
@@ -60,20 +60,20 @@ impl PgPaw {
         self.read.live_subscription_count()
     }
 
-    #[cfg(feature = "az-wire")]
-    pub async fn attach_az_wire(
+    #[cfg(feature = "unb")]
+    pub async fn attach_unb(
         &mut self,
-        node: ::az_wire::NodeBuilder,
-        topology: ::az_wire::TopologyConfig,
+        node: ::unb::NodeBuilder,
+        topology: ::unb::TopologyConfig,
     ) -> Result<(), CacheError> {
-        let node = crate::binding::az_wire::register_az_wire(node, self.read.clone())
+        let node = crate::binding::unb::register_unb(node, self.read.clone())
             .build()
             .map_err(|error| CacheError::lifecycle(LifecycleErrorKind::Topology, error))?;
         let topology = node
             .start_topology(topology)
             .await
             .map_err(|error| CacheError::lifecycle(LifecycleErrorKind::Topology, error))?;
-        self.az_wire.push(topology);
+        self.unb.push(topology);
         Ok(())
     }
 
@@ -84,9 +84,9 @@ impl PgPaw {
         {
             has_bindings |= self.http_task.is_some();
         }
-        #[cfg(feature = "az-wire")]
+        #[cfg(feature = "unb")]
         {
-            has_bindings |= !self.az_wire.is_empty();
+            has_bindings |= !self.unb.is_empty();
         }
         if !has_bindings {
             std::future::pending::<()>().await;
@@ -104,9 +104,9 @@ impl PgPaw {
                     .map_err(|error| CacheError::Io(std::io::Error::other(error)))
                     .and_then(|served| served.map_err(CacheError::Io));
             }
-            #[cfg(feature = "az-wire")]
+            #[cfg(feature = "unb")]
             if let Some(topology) = self
-                .az_wire
+                .unb
                 .iter_mut()
                 .find(|topology| topology.is_finished())
             {
@@ -119,7 +119,7 @@ impl PgPaw {
         }
     }
 
-    #[cfg_attr(not(any(feature = "server", feature = "az-wire")), allow(unused_mut))]
+    #[cfg_attr(not(any(feature = "server", feature = "unb")), allow(unused_mut))]
     pub async fn shutdown(mut self) -> Result<(), CacheError> {
         let mut result = Ok(());
         #[cfg(feature = "server")]
@@ -139,8 +139,8 @@ impl PgPaw {
                 }
             }
         }
-        #[cfg(feature = "az-wire")]
-        for topology in self.az_wire.drain(..) {
+        #[cfg(feature = "unb")]
+        for topology in self.unb.drain(..) {
             if let Err(error) = topology.shutdown().await {
                 if result.is_ok() {
                     result = Err(CacheError::lifecycle(LifecycleErrorKind::Shutdown, error));
@@ -172,7 +172,7 @@ impl PgPaw {
         result
     }
 
-    #[cfg(any(feature = "server", feature = "az-wire"))]
+    #[cfg(any(feature = "server", feature = "unb"))]
     pub(crate) async fn abort_open(self, error: CacheError) -> CacheError {
         if let Err(cleanup) = self.shutdown().await {
             log::warn!("event=open_rollback_failed error={:?}", cleanup.to_string());

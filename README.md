@@ -5,8 +5,8 @@ PgPaw is a read-only HTTP and realtime layer for Postgres. It keeps a local
 database, runs plain PostgreSQL `SELECT` queries against that replica, and
 returns either cacheable JSON snapshots or live Server-Sent Events.
 
-With the `az-wire` feature, the same read-only operations are also available through a native
-az-wire host. PgPaw can separately run as an embedded writable PostgreSQL primary for a Rust host;
+With the `unb` feature, the same read-only operations are also available through a native
+unb host. PgPaw can separately run as an embedded writable PostgreSQL primary for a Rust host;
 embedded mode does not use logical replication.
 
 Use PgPaw when you want:
@@ -241,22 +241,22 @@ Use explicit subcommands in scripts because they make intent clearer:
 pgpaw serve --pg-database myapp --port 8080
 ```
 
-### Native az-wire
+### Native unb
 
-Build PgPaw with the `az-wire` feature to add an independent native az-wire listener:
+Build PgPaw with the `unb` feature to add an independent native unb listener:
 
 ```bash
-cargo run --features az-wire -- serve \
+cargo run --features unb -- serve \
   --host 127.0.0.1 \
   --port 8080 \
-  --az-wire-host 127.0.0.1 \
-  --az-wire-port 8788 \
-  --az-wire-node pgpaw \
+  --unb-host 127.0.0.1 \
+  --unb-port 8788 \
+  --unb-node pgpaw \
   --pg-database myapp
 ```
 
-`--az-wire-port` is optional and has no default. Without it, serve remains HTTP-only. When set,
-Actix HTTP and native az-wire bind independent listeners over shared PgPaw state; az-wire traffic
+`--unb-port` is optional and has no default. Without it, serve remains HTTP-only. When set,
+Actix HTTP and native unb bind independent listeners over shared PgPaw state; unb traffic
 never passes through Actix. Startup reports readiness only after both listeners bind, and failure of
 either listener rolls back startup.
 
@@ -277,16 +277,16 @@ so a policy sees the same identity for the snapshot and for every change that fo
 
 Rust hosts compose PgPaw through one builder. `PgSource::primary` starts one writable embedded
 PostgreSQL primary; `primary_dsn()` yields the DSN for a direct PostgreSQL pool. With the
-`az-wire` feature, `.az_wire(node, topology)` exposes the same read-only and realtime services
-over az-wire, for example as a listenerless child of a parent node:
+`unb` feature, `.unb(node, topology)` exposes the same read-only and realtime services
+over unb, for example as a listenerless child of a parent node:
 
 ```rust
 let pgpaw = PgPaw::builder()
     .source(PgSource::primary(EmbeddedPrimarySource::embedded("./primary-data")))
     .auth(AuthConfig::jwt_secret(secret))
-    .az_wire(
-        az_wire::NodeBuilder::new("pgpaw").insecure_accept_declared_peer_identities(),
-        az_wire::TopologyConfig::parent(az_wire::ParentLink::unix(
+    .unb(
+        unb::NodeBuilder::new("pgpaw").insecure_accept_declared_peer_identities(),
+        unb::TopologyConfig::parent(unb::ParentLink::unix(
             "worldant",
             "/tmp/worldant.sock",
         )),
@@ -297,10 +297,10 @@ let dsn = pgpaw.primary_dsn().unwrap();
 ```
 
 The same builder serves the replica mode: `PgSource::replica(ReplicaSource { .. })` plus an optional
-`.http(HttpConfig { .. })` binding and any number of `.az_wire(..)` bindings — every binding reaches
+`.http(HttpConfig { .. })` binding and any number of `.unb(..)` bindings — every binding reaches
 the same read/live capabilities. `pgpaw.wait().await` blocks until a binding stops; `shutdown()`
 stops bindings first, then the source, then closes the database. The direct pool remains the
-read/write database path; the az-wire binding is additive and creates no replica or second database.
+read/write database path; the unb binding is additive and creates no replica or second database.
 
 ## HTTP API
 

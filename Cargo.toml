@@ -9,7 +9,7 @@ description = "Read-only Postgres cache + realtime server over an embedded pglit
 
 [workspace]
 members = ["bench", "integration-tests"]
-exclude = ["az-wire"]
+exclude = ["unb"]
 
 [lib]
 name = "pgpaw"
@@ -21,7 +21,7 @@ required-features = ["server"]
 
 [features]
 default = ["server"]
-az-wire = ["read", "dep:az-wire", "dep:futures-util"]
+unb = ["read", "dep:unb", "dep:futures-util"]
 read = [
     "dep:tokio",
     "dep:postgres-types",
@@ -62,12 +62,12 @@ jsonwebtoken = { version = "9", optional = true }
 log = "0.4"
 time = { version = "0.3", features = ["formatting"], optional = true }
 tempfile = "3"
-az-wire = { path = "az-wire/crates/az-wire", optional = true }
+unb = { path = "unb/crates/unb", optional = true }
 futures-util = { version = "0.3", optional = true }
 
 [dev-dependencies]
-az-wire-client = { path = "az-wire/crates/az-wire-client" }
-az-wire-transport = { path = "az-wire/crates/az-wire-transport" }
+unb-client = { path = "unb/crates/unb-client" }
+unb-transport = { path = "unb/crates/unb-transport" }
 futures-util = "0.3"
 libc = "0.2"
 serial_test = "3"

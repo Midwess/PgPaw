@@ -46,18 +46,18 @@ struct ServeOptions {
     /// Port for the PgPaw HTTP API
     #[arg(long, env = "PGPAW_PORT", default_value_t = 8080)]
     port: u16,
-    #[cfg(feature = "az-wire")]
-    /// Port for the native az-wire host
-    #[arg(long, env = "PGPAW_AZ_WIRE_PORT")]
-    az_wire_port: Option<u16>,
-    #[cfg(feature = "az-wire")]
-    /// Host for the native az-wire listener
-    #[arg(long, env = "PGPAW_AZ_WIRE_HOST", default_value = "127.0.0.1")]
-    az_wire_host: std::net::IpAddr,
-    #[cfg(feature = "az-wire")]
-    /// Node identity for native az-wire
-    #[arg(long, env = "PGPAW_AZ_WIRE_NODE", default_value = "pgpaw")]
-    az_wire_node: String,
+    #[cfg(feature = "unb")]
+    /// Port for the native unb host
+    #[arg(long, env = "PGPAW_UNB_PORT")]
+    unb_port: Option<u16>,
+    #[cfg(feature = "unb")]
+    /// Host for the native unb listener
+    #[arg(long, env = "PGPAW_UNB_HOST", default_value = "127.0.0.1")]
+    unb_host: std::net::IpAddr,
+    #[cfg(feature = "unb")]
+    /// Node identity for native unb
+    #[arg(long, env = "PGPAW_UNB_NODE", default_value = "pgpaw")]
+    unb_node: String,
     /// Data directory for the local pglite replica
     #[arg(long, env = "PGPAW_DATA_DIR", default_value = "./cache-data")]
     data_dir: PathBuf,
@@ -122,18 +122,18 @@ struct PrimaryOptions {
     /// TCP port for embedded Postgres
     #[arg(long = "primary-port", env = "PRIMARY_PORT", default_value_t = 5432)]
     primary_port: u16,
-    #[cfg(feature = "az-wire")]
-    /// Node identity for native az-wire
-    #[arg(long, env = "PGPAW_AZ_WIRE_NODE", default_value = "pgpaw")]
-    az_wire_node: String,
-    #[cfg(feature = "az-wire")]
-    /// Parent node identity for the az-wire child link
-    #[arg(long = "az-wire-parent-node", env = "PGPAW_AZ_WIRE_PARENT_NODE")]
-    az_wire_parent_node: Option<String>,
-    #[cfg(feature = "az-wire")]
-    /// Unix socket path of the az-wire parent
-    #[arg(long = "az-wire-parent-unix", env = "PGPAW_AZ_WIRE_PARENT_UNIX")]
-    az_wire_parent_unix: Option<PathBuf>,
+    #[cfg(feature = "unb")]
+    /// Node identity for native unb
+    #[arg(long, env = "PGPAW_UNB_NODE", default_value = "pgpaw")]
+    unb_node: String,
+    #[cfg(feature = "unb")]
+    /// Parent node identity for the unb child link
+    #[arg(long = "unb-parent-node", env = "PGPAW_UNB_PARENT_NODE")]
+    unb_parent_node: Option<String>,
+    #[cfg(feature = "unb")]
+    /// Unix socket path of the unb parent
+    #[arg(long = "unb-parent-unix", env = "PGPAW_UNB_PARENT_UNIX")]
+    unb_parent_unix: Option<PathBuf>,
 }
 
 #[derive(Args, Clone)]
@@ -231,10 +231,10 @@ impl ServeOptions {
             })
     }
 
-    #[cfg(feature = "az-wire")]
-    fn az_wire_addr(&self) -> Option<SocketAddr> {
-        self.az_wire_port
-            .map(|port| SocketAddr::new(self.az_wire_host, port))
+    #[cfg(feature = "unb")]
+    fn unb_addr(&self) -> Option<SocketAddr> {
+        self.unb_port
+            .map(|port| SocketAddr::new(self.unb_host, port))
     }
 
     fn source(&self) -> ReplicaSource {
@@ -265,14 +265,14 @@ impl ServeOptions {
                 addr: self.addr()?,
                 cors_origin: self.cors_origin.clone(),
             });
-        #[cfg(feature = "az-wire")]
-        let builder = match self.az_wire_addr() {
-            Some(addr) => builder.az_wire(
-                az_wire::NodeBuilder::new(&self.az_wire_node)
+        #[cfg(feature = "unb")]
+        let builder = match self.unb_addr() {
+            Some(addr) => builder.unb(
+                unb::NodeBuilder::new(&self.unb_node)
                     .insecure_accept_declared_peer_identities(),
-                az_wire::TopologyConfig::host(az_wire::HostConfig::tcp(
+                unb::TopologyConfig::host(unb::HostConfig::tcp(
                     addr,
-                    az_wire::TcpTransport::plain(),
+                    unb::TcpTransport::plain(),
                 )),
             ),
             None => builder,
@@ -291,12 +291,12 @@ impl PrimaryOptions {
             min_connections: 0,
             max_connections: self.max_connections,
         }));
-        #[cfg(feature = "az-wire")]
-        let builder = match (&self.az_wire_parent_node, &self.az_wire_parent_unix) {
-            (Some(parent_node), Some(parent_unix)) => builder.az_wire(
-                az_wire::NodeBuilder::new(&self.az_wire_node)
+        #[cfg(feature = "unb")]
+        let builder = match (&self.unb_parent_node, &self.unb_parent_unix) {
+            (Some(parent_node), Some(parent_unix)) => builder.unb(
+                unb::NodeBuilder::new(&self.unb_node)
                     .insecure_accept_declared_peer_identities(),
-                az_wire::TopologyConfig::parent(az_wire::ParentLink::unix(
+                unb::TopologyConfig::parent(unb::ParentLink::unix(
                     parent_node,
                     parent_unix,
                 )),
@@ -462,99 +462,99 @@ mod tests {
     #[cfg(unix)]
     use std::time::Duration;
 
-    #[cfg(feature = "az-wire")]
+    #[cfg(feature = "unb")]
     #[test]
-    fn az_wire_port_is_optional_for_implicit_and_explicit_serve() {
+    fn unb_port_is_optional_for_implicit_and_explicit_serve() {
         let implicit = Cli::try_parse_from(["pgpaw"]).unwrap();
-        assert_eq!(implicit.serve.az_wire_port, None);
+        assert_eq!(implicit.serve.unb_port, None);
 
         let explicit = Cli::try_parse_from(["pgpaw", "serve"]).unwrap();
         let Some(Command::Serve(explicit)) = explicit.command else {
             panic!("expected serve command");
         };
-        assert_eq!(explicit.az_wire_port, None);
+        assert_eq!(explicit.unb_port, None);
     }
 
-    #[cfg(feature = "az-wire")]
+    #[cfg(feature = "unb")]
     #[test]
-    fn az_wire_port_parses_for_implicit_and_explicit_serve() {
-        let implicit = Cli::try_parse_from(["pgpaw", "--az-wire-port", "9000"]).unwrap();
-        assert_eq!(implicit.serve.az_wire_port, Some(9000));
+    fn unb_port_parses_for_implicit_and_explicit_serve() {
+        let implicit = Cli::try_parse_from(["pgpaw", "--unb-port", "9000"]).unwrap();
+        assert_eq!(implicit.serve.unb_port, Some(9000));
 
-        let explicit = Cli::try_parse_from(["pgpaw", "serve", "--az-wire-port", "9001"]).unwrap();
+        let explicit = Cli::try_parse_from(["pgpaw", "serve", "--unb-port", "9001"]).unwrap();
         let Some(Command::Serve(explicit)) = explicit.command else {
             panic!("expected serve command");
         };
-        assert_eq!(explicit.az_wire_port, Some(9001));
+        assert_eq!(explicit.unb_port, Some(9001));
     }
 
-    #[cfg(feature = "az-wire")]
+    #[cfg(feature = "unb")]
     #[test]
-    fn az_wire_host_and_node_parse_with_minimal_defaults() {
+    fn unb_host_and_node_parse_with_minimal_defaults() {
         let defaults = Cli::try_parse_from(["pgpaw"]).unwrap().serve;
-        assert_eq!(defaults.az_wire_host.to_string(), "127.0.0.1");
-        assert_eq!(defaults.az_wire_node, "pgpaw");
+        assert_eq!(defaults.unb_host.to_string(), "127.0.0.1");
+        assert_eq!(defaults.unb_node, "pgpaw");
 
         let configured = Cli::try_parse_from([
             "pgpaw",
-            "--az-wire-port",
+            "--unb-port",
             "9000",
-            "--az-wire-host",
+            "--unb-host",
             "0.0.0.0",
-            "--az-wire-node",
+            "--unb-node",
             "cache",
         ])
         .unwrap()
         .serve;
-        assert_eq!(configured.az_wire_host.to_string(), "0.0.0.0");
-        assert_eq!(configured.az_wire_node, "cache");
+        assert_eq!(configured.unb_host.to_string(), "0.0.0.0");
+        assert_eq!(configured.unb_node, "cache");
     }
 
-    #[cfg(feature = "az-wire")]
+    #[cfg(feature = "unb")]
     #[test]
-    fn az_wire_host_requires_an_ip_literal() {
+    fn unb_host_requires_an_ip_literal() {
         assert!(Cli::try_parse_from([
             "pgpaw",
-            "--az-wire-port",
+            "--unb-port",
             "9000",
-            "--az-wire-host",
+            "--unb-host",
             "localhost",
         ])
         .is_err());
     }
 
-    #[cfg(feature = "az-wire")]
+    #[cfg(feature = "unb")]
     #[test]
-    fn serve_is_http_only_without_az_wire_port() {
+    fn serve_is_http_only_without_unb_port() {
         let options = Cli::try_parse_from(["pgpaw"]).unwrap().serve;
         assert_eq!(options.addr().unwrap().to_string(), "127.0.0.1:8080");
-        assert_eq!(options.az_wire_addr(), None);
+        assert_eq!(options.unb_addr(), None);
     }
 
-    #[cfg(feature = "az-wire")]
+    #[cfg(feature = "unb")]
     #[test]
-    fn serve_keeps_http_and_az_wire_addresses_independent() {
+    fn serve_keeps_http_and_unb_addresses_independent() {
         let options = Cli::try_parse_from([
             "pgpaw",
             "--host",
             "127.0.0.2",
             "--port",
             "8081",
-            "--az-wire-host",
+            "--unb-host",
             "127.0.0.3",
-            "--az-wire-port",
+            "--unb-port",
             "9000",
         ])
         .unwrap()
         .serve;
         assert_eq!(options.addr().unwrap().to_string(), "127.0.0.2:8081");
         assert_eq!(
-            options.az_wire_addr().unwrap().to_string(),
+            options.unb_addr().unwrap().to_string(),
             "127.0.0.3:9000"
         );
     }
 
-    #[cfg(feature = "az-wire")]
+    #[cfg(feature = "unb")]
     #[test]
     fn primary_parses_database_and_parent_link_flags() {
         let parsed = Cli::try_parse_from([
@@ -562,11 +562,11 @@ mod tests {
             "primary",
             "--database",
             "app",
-            "--az-wire-node",
+            "--unb-node",
             "pgpaw",
-            "--az-wire-parent-node",
+            "--unb-parent-node",
             "worldant",
-            "--az-wire-parent-unix",
+            "--unb-parent-unix",
             "/tmp/worldant.sock",
         ])
         .unwrap();
@@ -574,10 +574,10 @@ mod tests {
             panic!("expected primary command");
         };
         assert_eq!(options.database, "app");
-        assert_eq!(options.az_wire_node, "pgpaw");
-        assert_eq!(options.az_wire_parent_node.as_deref(), Some("worldant"));
+        assert_eq!(options.unb_node, "pgpaw");
+        assert_eq!(options.unb_parent_node.as_deref(), Some("worldant"));
         assert_eq!(
-            options.az_wire_parent_unix.as_deref(),
+            options.unb_parent_unix.as_deref(),
             Some(std::path::Path::new("/tmp/worldant.sock"))
         );
     }

@@ -9,7 +9,7 @@ The crate SHALL organize `src/` into six responsibility-scoped modules — `api`
 #### Scenario: Each module owns its responsibility
 
 - WHEN the source tree is inspected
-- THEN `api/` contains only builder/runtime/config types, `source/` only source-assembly functions, `capability/` only read-side semantic units, `binding/` only HTTP/az-wire exposure, `db/` only low-level pglite setup/open/recovery/observer/shadow primitives, and `protocol/` only subject constants and payload structs
+- THEN `api/` contains only builder/runtime/config types, `source/` only source-assembly functions, `capability/` only read-side semantic units, `binding/` only HTTP/unb exposure, `db/` only low-level pglite setup/open/recovery/observer/shadow primitives, and `protocol/` only subject constants and payload structs
 - AND `src/composition.rs` no longer exists
 
 #### Scenario: Dependency direction stays a DAG
@@ -51,11 +51,11 @@ The public API SHALL rename `Source` to `PgSource` and `PrimarySource` to `Embed
 
 ### Requirement: Behavior Preservation
 
-The reshape SHALL NOT change runtime behavior: SQL handling, replication, trigger-backed CDC, auth/RLS semantics, cache semantics, HTTP responses, az-wire behavior, CLI behavior, feature-gate matrix, or logfmt `event=` names.
+The reshape SHALL NOT change runtime behavior: SQL handling, replication, trigger-backed CDC, auth/RLS semantics, cache semantics, HTTP responses, unb behavior, CLI behavior, feature-gate matrix, or logfmt `event=` names.
 
 #### Scenario: Feature matrix unchanged
 
-- WHEN the crate is built with `--no-default-features --features read`, default features, `--no-default-features --features az-wire`, and `--all-features`
+- WHEN the crate is built with `--no-default-features --features read`, default features, `--no-default-features --features unb`, and `--all-features`
 - THEN every combination compiles with zero warnings and every pre-existing test passes unmodified except import-path and rename updates
 
 #### Scenario: Log event names unchanged
@@ -69,10 +69,10 @@ The reshape SHALL NOT change runtime behavior: SQL handling, replication, trigge
 - WHEN the crate is built without the `read` feature
 - THEN `recover_primary` and its support functions remain compiled and callable (ungated), exactly as before
 
-#### Scenario: az-wire passthrough unchanged
+#### Scenario: unb passthrough unchanged
 
-- WHEN an az-wire binding is configured
-- THEN PgPaw still accepts `az_wire::NodeBuilder` and `az_wire::TopologyConfig` verbatim and registers the same `read`/`cursor`/`live` subjects
+- WHEN an unb binding is configured
+- THEN PgPaw still accepts `unb::NodeBuilder` and `unb::TopologyConfig` verbatim and registers the same `read`/`cursor`/`live` subjects
 
 ## MODIFIED Requirements
 

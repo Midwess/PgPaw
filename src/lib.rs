@@ -17,8 +17,8 @@ mod tests;
 
 #[cfg(feature = "read")]
 pub use api::builder::PgPawBuilder;
-#[cfg(feature = "az-wire")]
-pub use api::config::AzWireConfig;
+#[cfg(feature = "unb")]
+pub use api::config::UnbConfig;
 #[cfg(feature = "read")]
 pub use api::config::{CacheConfig, EmbeddedPrimarySource, PgSource};
 #[cfg(feature = "server")]

@@ -1,12 +1,12 @@
-#[cfg(feature = "az-wire")]
-use crate::api::config::AzWireConfig;
+#[cfg(feature = "unb")]
+use crate::api::config::UnbConfig;
 #[cfg(feature = "server")]
 use crate::api::config::HttpConfig;
 use crate::api::config::{CacheConfig, PgSource};
 use crate::api::runtime::PgPaw;
 use crate::capability::auth::AuthConfig;
 use crate::error::CacheError;
-#[cfg(feature = "az-wire")]
+#[cfg(feature = "unb")]
 use crate::error::LifecycleErrorKind;
 
 pub struct PgPawBuilder {
@@ -15,8 +15,8 @@ pub struct PgPawBuilder {
     auth: AuthConfig,
     #[cfg(feature = "server")]
     http: Option<HttpConfig>,
-    #[cfg(feature = "az-wire")]
-    az_wire: Vec<AzWireConfig>,
+    #[cfg(feature = "unb")]
+    unb: Vec<UnbConfig>,
 }
 
 impl PgPaw {
@@ -27,8 +27,8 @@ impl PgPaw {
             auth: AuthConfig::default(),
             #[cfg(feature = "server")]
             http: None,
-            #[cfg(feature = "az-wire")]
-            az_wire: Vec::new(),
+            #[cfg(feature = "unb")]
+            unb: Vec::new(),
         }
     }
 }
@@ -55,13 +55,13 @@ impl PgPawBuilder {
         self
     }
 
-    #[cfg(feature = "az-wire")]
-    pub fn az_wire(
+    #[cfg(feature = "unb")]
+    pub fn unb(
         mut self,
-        node: ::az_wire::NodeBuilder,
-        topology: ::az_wire::TopologyConfig,
+        node: ::unb::NodeBuilder,
+        topology: ::unb::TopologyConfig,
     ) -> Self {
-        self.az_wire.push(AzWireConfig { node, topology });
+        self.unb.push(UnbConfig { node, topology });
         self
     }
 
@@ -71,7 +71,7 @@ impl PgPawBuilder {
             .ok_or_else(|| CacheError::Config("PgPaw requires a source".into()))?;
         let (read, db, dsn, shutdown_state) =
             crate::source::build_read_core(source, self.cache, self.auth).await?;
-        #[cfg_attr(not(any(feature = "server", feature = "az-wire")), allow(unused_mut))]
+        #[cfg_attr(not(any(feature = "server", feature = "unb")), allow(unused_mut))]
         let mut pgpaw = PgPaw {
             read,
             db,
@@ -81,8 +81,8 @@ impl PgPawBuilder {
             http_handle: None,
             #[cfg(feature = "server")]
             http_task: None,
-            #[cfg(feature = "az-wire")]
-            az_wire: Vec::new(),
+            #[cfg(feature = "unb")]
+            unb: Vec::new(),
         };
         if matches!(
             pgpaw.shutdown_state,
@@ -103,10 +103,10 @@ impl PgPawBuilder {
                 Err(error) => return Err(pgpaw.abort_open(error).await),
             }
         }
-        #[cfg(feature = "az-wire")]
-        for config in self.az_wire {
+        #[cfg(feature = "unb")]
+        for config in self.unb {
             let node =
-                match crate::binding::az_wire::register_az_wire(config.node, pgpaw.read.clone())
+                match crate::binding::unb::register_unb(config.node, pgpaw.read.clone())
                     .build()
                 {
                     Ok(node) => node,
@@ -117,7 +117,7 @@ impl PgPawBuilder {
                     }
                 };
             match node.start_topology(config.topology).await {
-                Ok(topology) => pgpaw.az_wire.push(topology),
+                Ok(topology) => pgpaw.unb.push(topology),
                 Err(error) => {
                     return Err(pgpaw
                         .abort_open(CacheError::lifecycle(LifecycleErrorKind::Topology, error))
