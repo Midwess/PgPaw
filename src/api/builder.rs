@@ -117,7 +117,7 @@ impl PgPawBuilder {
                     }
                 };
             match node.start_topology(config.topology).await {
-                Ok(topology) => pgpaw.unb.push(topology),
+                Ok(topology) => pgpaw.unb.push((node, topology)),
                 Err(error) => {
                     return Err(pgpaw
                         .abort_open(CacheError::lifecycle(LifecycleErrorKind::Topology, error))

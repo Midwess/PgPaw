@@ -29,7 +29,7 @@ pub struct PgPaw {
     #[cfg(feature = "server")]
     pub(crate) http_task: Option<tokio::task::JoinHandle<std::io::Result<()>>>,
     #[cfg(feature = "unb")]
-    pub(crate) unb: Vec<::unb::UnbTopology>,
+    pub(crate) unb: Vec<(std::sync::Arc<::unb::Node>, ::unb::UnbTopology)>,
 }
 
 impl std::fmt::Debug for PgPaw {
@@ -73,7 +73,7 @@ impl PgPaw {
             .start_topology(topology)
             .await
             .map_err(|error| CacheError::lifecycle(LifecycleErrorKind::Topology, error))?;
-        self.unb.push(topology);
+        self.unb.push((node, topology));
         Ok(())
     }
 
@@ -105,10 +105,10 @@ impl PgPaw {
                     .and_then(|served| served.map_err(CacheError::Io));
             }
             #[cfg(feature = "unb")]
-            if let Some(topology) = self
+            if let Some((_, topology)) = self
                 .unb
                 .iter_mut()
-                .find(|topology| topology.is_finished())
+                .find(|(_, topology)| topology.is_finished())
             {
                 return topology
                     .wait()
@@ -140,7 +140,7 @@ impl PgPaw {
             }
         }
         #[cfg(feature = "unb")]
-        for topology in self.unb.drain(..) {
+        for (_, topology) in self.unb.drain(..) {
             if let Err(error) = topology.shutdown().await {
                 if result.is_ok() {
                     result = Err(CacheError::lifecycle(LifecycleErrorKind::Shutdown, error));
